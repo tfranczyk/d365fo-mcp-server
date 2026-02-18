@@ -7,6 +7,10 @@
     "xpp-completion": {
       "url": "https://your-app-name.azurewebsites.net/mcp/",
       "description": "X++ Code Completion Server for D365 F&O"
+    },
+    "context": {
+      "workspacePath": "K:\\AOSService\\PackagesLocalDirectory\\YourModelName",
+      "packagePath": "K:\\AOSService\\PackagesLocalDirectory"
     }
   }
 }

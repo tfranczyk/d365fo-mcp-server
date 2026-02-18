@@ -6,8 +6,28 @@
  * - Custom models are defined in CUSTOM_MODELS environment variable
  * - Supports wildcards: Custom*, *Test, *Extension*
  * - Models with EXTENSION_PREFIX are considered custom
+ * - Auto-detected models from workspace are automatically registered as custom
  * - All other models are considered Microsoft standard models
  */
+
+// Runtime registry for auto-detected custom models
+const autoDetectedCustomModels = new Set<string>();
+
+/**
+ * Register a model as custom (e.g., from auto-detection)
+ * This allows dynamically detected models to be treated as custom
+ */
+export function registerCustomModel(modelName: string): void {
+  autoDetectedCustomModels.add(modelName);
+  console.error(`[ModelClassifier] Registered "${modelName}" as custom model (auto-detected)`);
+}
+
+/**
+ * Check if a model is registered as auto-detected custom
+ */
+export function isAutoDetectedCustomModel(modelName: string): boolean {
+  return autoDetectedCustomModels.has(modelName);
+}
 
 /**
  * Get list of custom models from environment
@@ -53,13 +73,18 @@ function matchesPattern(pattern: string, modelName: string): boolean {
  * @returns true if model is custom, false if standard
  */
 export function isCustomModel(modelName: string): boolean {
+  // Priority 1: Auto-detected custom models (from workspace detection)
+  if (isAutoDetectedCustomModel(modelName)) {
+    return true;
+  }
+  
   const customModels = getCustomModels();
   const extensionPrefix = getExtensionPrefix();
   
-  // Check if model matches any pattern in custom models list
+  // Priority 2: Check if model matches any pattern in custom models list
   const isInCustomList = customModels.some(pattern => matchesPattern(pattern, modelName));
   
-  // Check if model starts with extension prefix
+  // Priority 3: Check if model starts with extension prefix
   const hasExtensionPrefix = !!(extensionPrefix && modelName.startsWith(extensionPrefix));
   
   return isInCustomList || hasExtensionPrefix;

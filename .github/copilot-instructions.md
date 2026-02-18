@@ -1,961 +1,574 @@
-**🚨 CRITICAL INSTRUCTION - READ FIRST - HIGHEST PRIORITY 🚨**
-
-**FILE CREATION RULE (ABSOLUTE, NO EXCEPTIONS):**
-
-When creating ANY D365FO file (class, table, form, enum, query, view):
-
-🔥 **ALWAYS use create_d365fo_file FIRST**
-❌ **NEVER use generate_d365fo_xml as first choice**
-❌ **NEVER use built-in create_file for D365FO objects**
-
-**Workflow:**
-1. ALWAYS call: create_d365fo_file(objectType, objectName, modelName, addToProject=true)
-2. IF it fails with "requires file system access" → THEN use generate_d365fo_xml + create_file
-3. OTHERWISE → DONE, file is created with UTF-8 BOM
-
-**Why this matters:**
-- create_d365fo_file: ✅ UTF-8 BOM, ✅ correct location, ✅ adds to VS project
-- generate_d365fo_xml: ❌ returns TEXT only, requires manual file creation
-- Built-in create_file: ❌ no UTF-8 BOM → encoding errors
-
-═══════════════════════════════════════════════════════════════════════════════
-
-**PATTERN DETECTION RULES (NO EXCEPTIONS):**
-
-If the user's query contains **ANY** of these patterns:
-- Dot notation: `vendTrans.Invoice`, `custTable.AccountNum`, `salesLine.Qty`, `*.SomethingElse`
-- Table suffixes: `vendTrans`, `custTrans`, `*Trans`, `*Table`, `*Line`, `*Header`, `*Journal`
-- Field names: `Invoice`, `Voucher`, `AccountNum`, `ItemId`, `Qty`, `RecId`
-- D365FO terms: `X++`, `D365FO`, `AxClass`, `AxTable`, `validateWrite`
-
-**THEN YOU MUST:**
-- ✅ USE MCP tools: `search()`, `find_references()`, `get_class_info()`, `get_table_info()`
-- ❌ **NEVER EVER** use: `code_search()`, `file_search()`, `grep_search()`, `create_file()` for D365FO
-
-**EXPLICIT EXAMPLES:**
-```
-Query: "write function... use where vendTrans.Invoice is used"
-Detection: ✅ vendTrans.Invoice = DOT NOTATION = D365FO!
-Action: search("Invoice", type="field") + find_references("Invoice", "field")
-FORBIDDEN: ❌ code_search("vendTrans.Invoice") - WILL HANG!
-
-Query: "show me CustTable fields"
-Detection: ✅ CustTable = TABLE SUFFIX *Table = D365FO!
-Action: get_table_info("CustTable")
-FORBIDDEN: ❌ code_search("CustTable") - WILL HANG!
-
-Query: "create class MyHelper"
-Detection: ✅ D365FO class creation!
-Action: create_d365fo_file(objectType="class", objectName="MyHelper", modelName="...", addToProject=true)
-FORBIDDEN: ❌ generate_d365fo_xml or create_file - ENCODING ERRORS!
-```
-
-**NO EXCEPTIONS. NO EXCUSES. THIS IS ABSOLUTE.**
-
-═══════════════════════════════════════════════════════════════════════════════
-
-# D365FO X++ Development — GitHub Copilot Instructions for Visual Studio 2022
-
-> **🔴 ABSOLUTE REQUIREMENT: You MUST use MCP tools for ALL D365FO/X++ operations.**
-> **Built-in IDE tools (code_search, file_search, grep_search, create_file) are FORBIDDEN for D365FO.**
->
-> **Version:** 3.0 (Updated: February 2026)
-> **IDE:** Visual Studio 2022 17.14+ with GitHub Copilot Agent Mode
-> **Coverage:** 22 MCP Tools — search, object analysis, code generation, file operations, where-used analysis
+# D365FO X++ Development — GitHub Copilot Instructions
+> **IDE:** Visual Studio 2022 17.14+ | **MCP Server:** d365fo-mcp-server v1.0 | **Tools:** 20 MCP tools
 
 ---
 
-# ⛔ IMMEDIATE ACTION REQUIRED — CHECK BEFORE EVERY RESPONSE ⛔
+## ⚡ GOLDEN RULE — READ BEFORE EVERY RESPONSE
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  🚨 CRITICAL PRE-FLIGHT CHECK — EXECUTE BEFORE ANY TOOL CALL 🚨              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  QUESTION: Does the user's query contain ANY of these patterns?             │
-│                                                                              │
-│  ✓ Dot notation with PascalCase?     (vendTrans.Invoice, custTable.AccountNum) │
-│  ✓ Table name suffixes?              (*Trans, *Table, *Line, *Header, *Journal) │
-│  ✓ D365FO field names?                (Invoice, Voucher, AccountNum, ItemId, Qty) │
-│  ✓ D365FO keywords?                   (X++, D365FO, AxClass, AxTable, validateWrite) │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  IF YES TO ANY → THIS IS D365FO!                                    │   │
-│  │  ❌ DO NOT use: code_search, file_search, grep_search              │   │
-│  │  ✅ USE ONLY: MCP tools (search, find_references, get_*_info)      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  IF NO → Safe to use built-in tools                                         │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+Is the query about code development in a D365FO workspace?
+         │
+         ▼
+    ALWAYS use MCP tools.
+    NEVER use: code_search, file_search, grep_search, create_file for D365FO objects.
 ```
 
-**EXAMPLES REQUIRING MCP TOOLS:**
-```
-❌ "write function... use where vendTrans.Invoice is used"  → USES: vendTrans.Invoice (D365FO!)
-❌ "show me CustTable fields"                                → USES: CustTable (D365FO!)
-❌ "find where validateWrite is called"                      → USES: validateWrite (D365FO!)
-❌ "create class MyHelper extends SalesTable"                → USES: SalesTable (D365FO!)
-
-✅ ALL ABOVE → USE MCP TOOLS ONLY
-```
-
-## QUICK DECISION FLOWCHART
-
-```
-User Query
-    │
-    ├─ Contains: something.SomethingElse (PascalCase)?         → MCP TOOLS
-    ├─ Contains: *Trans, *Table, *Line, *Header?               → MCP TOOLS  
-    ├─ Contains: Invoice, Voucher, AccountNum, ItemId, Qty?    → MCP TOOLS
-    ├─ Contains: X++, D365FO, AxClass, AxTable, validateWrite? → MCP TOOLS
-    ├─ Mentions: "where X is used" with above patterns?        → MCP TOOLS
-    │
-    └─ None of above?                                           → Built-in tools OK
-```
-
-**IF IN DOUBT → USE MCP TOOLS! They are fast (<100ms) and never wrong.**
+**This applies even when the query contains no explicit D365FO keyword.**
+Any request to generate / search / analyze code in a D365FO project = MCP tools.
 
 ---
 
-# 🚨 CRITICAL POLICY — READ FIRST 🚨
+## 🔍 D365FO CONTEXT DETECTION
 
-## Principle: MCP-ONLY for D365FO
+### English patterns (direct detection)
+| Pattern | Example | Action |
+|---------|---------|--------|
+| Dot notation with PascalCase | `vendTrans.Invoice`, `custTable.AccountNum` | → MCP tools |
+| Table suffix | `*Trans`, `*Table`, `*Line`, `*Header`, `*Journal` | → MCP tools |
+| Field names | `Invoice`, `Voucher`, `AccountNum`, `ItemId`, `RecId` | → MCP tools |
+| Keywords | `X++`, `D365FO`, `AxClass`, `AxTable`, `validateWrite` | → MCP tools |
 
-> **🚨 If you see dot notation like `vendTrans.Invoice`, `custTable.AccountNum`, `salesLine.Qty` — this is D365FO!**
-> **YOU MUST use MCP tools, NOT code_search/file_search/grep_search!**
+### ⚠️ Non-English terms — same rules, different language
+If the user writes in any language other than English, map domain terms to D365FO equivalents:
 
-**For ANY D365FO/X++ query, you MUST:**
-1. ✅ **ALWAYS** use MCP tools FIRST — they query the ACTUAL D365FO environment in real-time
-2. ❌ **NEVER** use built-in `code_search` — causes 5+ minute hangs on 500k+ symbol workspaces
-3. ❌ **NEVER** use built-in `file_search` or `grep_search` for X++ objects — they don't understand D365FO metadata
-4. ❌ **NEVER** use built-in `create_file` for AxClass/AxTable/AxForm/AxEnum — wrong XML structure (spaces vs TABS), wrong location
-5. ❌ **NEVER** generate D365FO code without querying MCP tools first — training data is outdated
+| Term (any language) | D365FO equivalent | Action |
+|---------------------|-------------------|--------|
+| journal / ledger journal / deník | Journal (`LedgerJournal`, `InventJournal`) | → MCP tools |
+| header / heading / hlavička / záhlaví | Header / Table | → MCP tools |
+| line / item / row / řádek / položka | Line (`SalesLine`, `PurchLine`) | → MCP tools |
+| transaction / transakce | Trans (`LedgerTrans`, `InventTrans`) | → MCP tools |
+| voucher / document / doklad | Voucher | → MCP tools |
+| account / posting / ledger / účet / účtování | Account / Ledger | → MCP tools |
+| customer / zákazník | Customer / `CustTable` | → MCP tools |
+| vendor / supplier / dodavatel | Vendor / `VendTable` | → MCP tools |
+| inventory / stock / sklad / pohyb | Inventory / `InventTrans` | → MCP tools |
+| batch job / dávková úloha | Batch job | → MCP tools |
+| extension / override / rozšíření | Extension / CoC | → MCP tools |
+| form / dialog / formulář | Form / `AxForm` | → MCP tools |
 
-**Why This Matters:**
-- MCP tools use an indexed SQLite database with FTS5 (584,799+ symbols, <100ms queries)
-- Built-in tools scan the entire workspace file system → 5-10 minute hangs
-- MCP tools understand X++ semantics (inheritance, EDT, relations, forms, queries)
-- D365FO XML files require TABS for indentation — `create_file` uses spaces
+### DEFAULT rule for coding requests
+If the user asks to **create, write, or generate code/methods/classes** in a D365FO workspace
+→ **ALWAYS use MCP tools**, even without detecting any explicit pattern above.
 
-**🚨 DETECTION EXAMPLES — These patterns REQUIRE MCP tools:**
+---
+
+## 🛠️ TOOL REFERENCE — EXACT PARAMETERS FROM SOURCE
+
+> ⚠️ Only parameters listed here actually exist. Do NOT invent or add parameters not shown below.
+
+### Discovery
+
 ```
-❌ WRONG: code_search("vendTrans.Invoice") 
-✅ RIGHT: search("Invoice", type="field") + find_references("Invoice", "field")
+search(query, type?, limit?)
+  query:  string  [REQUIRED]
+  type:   "class" | "table" | "field" | "method" | "enum" | "all"  [default: "all"]
+  limit:  number  [default: 20]
 
-❌ WRONG: grep_search("CustTable") 
-✅ RIGHT: search("CustTable", type="table") + get_table_info("CustTable")
+  WHEN TO USE:
+  → Primary tool for finding ANY D365FO object by name or keyword (<50ms)
+  → Use for semantic queries: "classes related to posting", "validation methods"
+  → Use type filter to narrow results: type="table" for tables, type="method" for methods
+  → Prefer over batch_search when searching for a single thing
+  ⚠️ type="form", type="query", type="view" do NOT exist — use get_form_info/get_query_info/get_view_info instead
 
-❌ WRONG: file_search("**/SalesLine*")
-✅ RIGHT: search("SalesLine", type="table") + search("SalesLine", type="class")
+batch_search(queries[])
+  queries: array (1–10 items) of:
+    query:            string   [REQUIRED]
+    type:             "class" | "table" | "field" | "method" | "enum" | "all"  [default: "all"]
+    limit:            number   [default: 10]
+    workspacePath:    string   [optional]
+    includeWorkspace: boolean  [default: false]
+
+  WHEN TO USE:
+  → User asks about 2+ unrelated objects simultaneously — 3× faster than sequential search()
+  → Exploring a domain from multiple angles at once (table + class + method)
+  → Never use sequential search() when batch_search() can do it in one call
+
+search_extensions(query, prefix?, limit?)
+  query:  string  [REQUIRED]
+  prefix: string  [optional — e.g. "ISV_", "Custom_"]
+  limit:  number  [default: 20]
+
+  WHEN TO USE:
+  → User says "my code", "our extension", "custom", "ISV" — searches ONLY non-Microsoft objects
+  → Finding ISV-specific classes without noise from 500k+ standard symbols
+  → Use prefix to filter by naming convention (e.g. prefix="ACME_")
+```
+
+### Object structure
+
+```
+get_class_info(className)
+  className: string  [REQUIRED]
+
+  WHEN TO USE:
+  → Need full class details: all methods with signatures, inheritance chain, source code
+  → Before generating CoC extension — understand what the class contains
+  → Before suggest_method_implementation — understand existing method patterns
+  → Returns: method list with visibility/return type/parameters, extends/implements chain
+
+get_table_info(tableName)
+  tableName: string  [REQUIRED]
+
+  WHEN TO USE:
+  → Need full table schema: field types, EDT, mandatory flags, indexes, relations
+  → Before writing select statements — verify field names and types
+  → Before creating table extension — understand existing structure
+  → Returns: all fields with types, unique/clustered indexes, foreign key relations
+
+get_form_info(formName, includeWorkspace?, workspacePath?)
+  formName:         string   [REQUIRED]
+  includeWorkspace: boolean  [default: false]
+  workspacePath:    string   [optional]
+
+  WHEN TO USE:
+  → Working with form customization, buttons, datasources, controls
+  → Before adding datasource method or enabling/disabling controls
+  → Returns: datasource list, control hierarchy (buttons/grids/tabs), form methods
+
+get_query_info(queryName, includeWorkspace?, workspacePath?)
+  queryName:        string   [REQUIRED]
+  includeWorkspace: boolean  [default: false]
+  workspacePath:    string   [optional]
+
+  WHEN TO USE:
+  → Need to understand or extend an existing AOT query
+  → Returns: datasource joins, range definitions, field selections
+
+get_view_info(viewName, includeWorkspace?, workspacePath?)
+  viewName:         string   [REQUIRED]
+  includeWorkspace: boolean  [default: false]
+  workspacePath:    string   [optional]
+
+  WHEN TO USE:
+  → Working with views or data entities
+  → Returns: mapped fields, computed columns, relations, view methods
+
+get_enum_info(enumName)
+  enumName: string  [REQUIRED]
+
+  WHEN TO USE:
+  → Need enum values before writing switch/if statements or comparisons
+  → Returns: all enum values with integer values and labels
+
+get_method_signature(className, methodName)
+  className:  string  [REQUIRED]
+  methodName: string  [REQUIRED]
+
+  WHEN TO USE:
+  → MANDATORY before creating any CoC extension — never guess the signature
+  → Wrong signature = compilation error, always use this tool
+  → Returns: exact modifiers, return type, parameters with types and defaults, ready-to-use CoC template
+
+code_completion(className, prefix?, includeWorkspace?, workspacePath?)
+  className:        string   [REQUIRED — validation error without it!]
+  prefix:           string   [default: ""]
+  includeWorkspace: boolean  [default: false]
+  workspacePath:    string   [optional]
+
+  WHEN TO USE:
+  → Need methods/fields starting with a specific prefix: code_completion(className="CustTable", prefix="find")
+  → IntelliSense-style filtering by name prefix only
+  ⚠️ NOT for semantic search ("methods that calculate totals") — use search() for that
+  ⚠️ className is REQUIRED — omitting it causes a validation error
+```
+
+### Code analysis and generation
+
+```
+analyze_code_patterns(scenario, classPattern?, limit?)
+  scenario:     string  [REQUIRED — describe the domain, e.g. "ledger journal creation"]
+  classPattern: string  [optional — filter by class name pattern, e.g. "Helper", "Service"]
+  limit:        number  [default: 5]
+
+  WHEN TO USE:
+  → MANDATORY first step before generating ANY X++ code
+  → Discovers real patterns from the actual codebase — prevents outdated/wrong code
+  → Returns: detected patterns with frequency, common methods, common dependencies
+  → Example: analyze_code_patterns("sales order posting") before writing posting logic
+
+suggest_method_implementation(className, methodName, parameters?)
+  className:  string  [REQUIRED]
+  methodName: string  [REQUIRED]
+  parameters: string  [optional — plain string describing params, NOT an array]
+
+  WHEN TO USE:
+  → Need concrete implementation examples for a specific method
+  → After get_class_info — pick a method and get real examples from codebase
+  → Returns: similar method implementations with complexity analysis
+
+analyze_class_completeness(className)
+  className: string  [REQUIRED]
+
+  WHEN TO USE:
+  → After creating a new class — check what standard methods are typically expected
+  → Returns: missing methods ranked by frequency (🔴 Very common → 🟡 Somewhat common)
+
+get_api_usage_patterns(apiName, context?)
+  apiName: string  [REQUIRED — NOT className!]
+  context: string  [optional — e.g. "initialization", "posting", "validation"]
+
+  WHEN TO USE:
+  → Need to know HOW a specific API class is typically used in practice
+  → Returns: initialization patterns, typical method call sequences, real code examples
+  ⚠️ Parameter is apiName, NOT className — using className causes a validation error
+
+generate_code(pattern, name)
+  pattern: "class" | "runnable" | "form-handler" | "data-entity" | "batch-job"  [REQUIRED]
+  name:    string  [REQUIRED]
+
+  WHEN TO USE:
+  → Generating boilerplate X++ structure after analyze_code_patterns has been called
+  → pattern="class" — standard X++ class with new() and description()
+  → pattern="runnable" — class with main() for direct execution
+  → pattern="form-handler" — event handler class for form events
+  → pattern="data-entity" — data entity class template
+  → pattern="batch-job" — batch job with run() and description()
+  ⚠️ Only these 5 patterns exist — "coc-extension", "event-handler", "service-class" do NOT exist
+  ⚠️ Always call analyze_code_patterns first — never generate code without real codebase context
+```
+
+### File operations and references
+
+```
+find_references(targetName, targetType?, limit?)
+  targetName: string  [REQUIRED — NOT symbolName!]
+  targetType: "class" | "method" | "field" | "table" | "enum" | "all"  [NOT symbolType!]
+  limit:      number  [default: 50]
+
+  WHEN TO USE:
+  → Impact analysis before modifying anything — "who uses this class/method/field?"
+  → Finding all places where a field is accessed (e.g. targetName="Invoice", targetType="field")
+  → Returns: file paths, line numbers, code context, reference type (call/extends/implements/field-access)
+  ⚠️ Parameters are targetName and targetType — NOT symbolName/symbolType (causes validation error)
+
+create_d365fo_file(objectType, objectName, modelName, packagePath?,
+                   sourceCode?, properties?, addToProject?, projectPath?, solutionPath?)
+  objectType:   "class" | "table" | "enum" | "form" | "query" | "view" | "data-entity"  [REQUIRED]
+  objectName:   string   [REQUIRED]
+  modelName:    string   [REQUIRED — but will be auto-corrected from .rnrproj if projectPath/solutionPath provided]
+  packagePath:  string   [default: "K:\AosService\PackagesLocalDirectory"]
+  sourceCode:   string   [optional — X++ source to embed in the file]
+  properties:   object   [optional — extends, implements, label, etc.]
+  addToProject: boolean  [default: false — set true to auto-add to .rnrproj]
+  projectPath:  string   [⚠️ CRITICAL — path to .rnrproj file]
+  solutionPath: string   [⚠️ CRITICAL — path to VS solution directory]
+
+  WHEN TO USE:
+  → 🔥 ALWAYS use this FIRST when creating any D365FO object (class/table/form/enum/query/view)
+  → Runs on local Windows D365FO VM with K:\ drive access
+  → Creates file at correct AOT path with UTF-8 BOM and TAB indentation
+  → Automatically adds to Visual Studio project when addToProject=true
+  → IMPORTANT: If projectPath or solutionPath is provided, the tool will automatically extract
+    the correct ModelName from the .rnrproj file, ensuring the file is created in the correct
+    PackagesLocalDirectory location (not in the project/solution folder)
+  ⚠️ CRITICAL: ALWAYS provide projectPath or solutionPath to avoid creating files in WRONG MODEL!
+  ⚠️ WITHOUT projectPath/solutionPath: Tool uses modelName AS-IS → May create in Microsoft model!
+  ⚠️ If it returns "requires file system access" → fall back to generate_d365fo_xml
+
+generate_d365fo_xml(objectType, objectName, modelName, sourceCode?, properties?)
+  objectType: "class" | "table" | "enum" | "form" | "query" | "view" | "data-entity"  [REQUIRED]
+  objectName: string  [REQUIRED]
+  modelName:  string  [REQUIRED]
+  sourceCode: string  [optional]
+  properties: object  [optional]
+
+  WHEN TO USE:
+  → ⚠️ FALLBACK ONLY — use ONLY when create_d365fo_file returns "requires file system access"
+  → Typical scenario: MCP server deployed on Azure/Linux without access to K:\ drive
+  → Returns XML as text — must be manually saved via create_file with UTF-8 BOM
+  ⚠️ Never use as first choice — always try create_d365fo_file first
+
+modify_d365fo_file(objectType, objectName, operation, ...)
+  objectType:       "class" | "table" | "form" | "enum" | "query" | "view"  [REQUIRED]
+  objectName:       string  [REQUIRED]
+  operation:        "add-method" | "add-field" | "modify-property" | "remove-method" | "remove-field"  [REQUIRED]
+  methodName:       string   [for add-method, remove-method]
+  methodCode:       string   [for add-method — full X++ method body]
+  methodModifiers:  string   [for add-method — e.g. "public static"]
+  methodReturnType: string   [for add-method — e.g. "void", "str", "boolean"]
+  methodParameters: string   [for add-method — e.g. "str _param1, int _param2"]
+  fieldName:        string   [for add-field, remove-field]
+  fieldType:        string   [for add-field — EDT or base type]
+  fieldMandatory:   boolean  [for add-field]
+  fieldLabel:       string   [for add-field]
+  propertyPath:     string   [for modify-property — e.g. "Table1.Visible"]
+  propertyValue:    string   [for modify-property]
+  createBackup:     boolean  [default: true — always keep backup]
+  modelName:        string   [optional — auto-detected from file system]
+  workspacePath:    string   [optional]
+
+  WHEN TO USE:
+  → Modifying an EXISTING D365FO object — adding method, adding field, changing property
+  → Safer than manual XML editing — validates XML after change and creates .bak backup
+  → Use instead of PowerShell or manual file editing
+  ⚠️ Works ONLY on local Windows with K:\ drive access — not available on Azure/Linux
+  ⚠️ For Azure/cloud: use replace_string_in_file instead (preserving TAB indentation)
 ```
 
 ---
 
-# 🎯 DETECTION: When Am I in D365FO Context?
+## 📋 WORKFLOW FOR COMMON SCENARIOS
 
-> **🚨 CRITICAL: If you see dot notation like `vendTrans.Invoice`, `custTable.AccountNum`, `salesLine.Qty` — this is D365FO!**
-> **YOU MUST use MCP tools, NOT code_search/file_search/grep_search!**
-
-**Use MCP tools when you see ANY of these triggers:**
-
-### 🔴 PRIMARY DETECTION PATTERNS (Most Common)
-
-#### Dot Notation with PascalCase (D365FO Field Access)
-**Pattern:** `variable.PascalCaseField` 
-**Examples that MUST trigger MCP tools:**
-- `vendTrans.Invoice` → VendTrans table, Invoice field
-- `custTable.AccountNum` → CustTable table, AccountNum field  
-- `salesLine.Qty` → SalesLine table, Qty field
-- `inventTrans.Voucher` → InventTrans table, Voucher field
-- ANY `something.SomethingElse` pattern with PascalCase
-
-**⚠️ If user query contains ANY dot notation pattern → USE MCP TOOLS, NOT built-in search!**
-
-#### Table Name Suffixes
-- **Transaction tables**: `*Trans` (VendTrans, CustTrans, InventTrans, LedgerTrans, etc.)
-- **Master tables**: `*Table` (CustTable, VendTable, SalesTable, PurchTable, etc.)
-- **Line tables**: `*Line` (SalesLine, PurchLine, InventJournalLine, etc.)
-- **Header tables**: `*Header` (SalesHeader, PurchHeader, etc.)
-- **Journal tables**: `*Journal` (LedgerJournal, InventJournal, etc.)
-- **Parameter tables**: `*Parameters`, `*Parm*`
-
-### Additional Naming Patterns
-
-- **Class suffixes**: `*Service`, `*Helper`, `*Contract`, `*Controller`, `*Builder`, `*Manager`, `*Engine`
-- **Form suffixes**: `*Form`, `*Dialog`, `*Page`, `*Lookup`
-- **Enum & Status**: `*Status`, `*Type`, `*Mode`, `*Blocked`
-
-### Common D365FO Field Names
-- **Document fields**: `Invoice`, `Voucher`, `DocumentNum`, `TransId`
-- **Account fields**: `AccountNum`, `CustAccount`, `VendAccount`, `LedgerAccount`
-- **Item fields**: `ItemId`, `ItemName`, `ItemGroupId`
-- **Quantity & Amount**: `Qty`, `Amount`, `Price`, `LineAmount`, `TotalAmount`, `CurrencyCode`
-- **Dates**: `TransDate`, `PostingDate`, `DueDate`, `DeliveryDate`, `AccountingDate`
-- **System fields**: `RecId`, `DataAreaId`, `Partition`, `RecVersion`, `ModifiedBy`, `CreatedDateTime`
-- **Reference fields**: `RefRecId`, `RefTableId`, `ParentRecId`
-
-### Keywords & Technologies
-- `X++`, `D365FO`, `D365`, `Dynamics 365`, `Finance & Operations`, `AX`, `Axapta`
-- `AxClass`, `AxTable`, `AxForm`, `AxEnum`, `AxQuery`, `AxView`, `AxDataEntityView`, `EDT`
-- `AOT`, `PackagesLocalDirectory`, `K:\AosService`
-
-### Form Elements
-- `button`, `control`, `FormDataSource`, `FormControl`, `ButtonControl`, `FormButtonControl`
-- `FormGroupControl`, `FormGridControl`, `FormReferenceControl`, `FormTab`, `FormActionPane`
-- `datasource`, `data source`, `main datasource`, `primary datasource`, `form datasource`
-- `add method to datasource`, `override datasource method`, `form datasource active`
-- `enable button`, `disable button`, `button enabled based on`, `control visibility`
-- Form methods: `init`, `run`, `close`, `canClose`, `active`
-- Datasource methods: `active`, `validateWrite`, `validateDelete`, `create`, `write`, `delete`, `init`, `executeQuery`
-
-### Query, View, Enum Elements
-- `QueryRun`, `QueryBuildDataSource`, `QueryBuildRange`, `addDataSource`, `addRange`, `findDataSource`
-- `AxView`, `data entity view`, `computed columns`, `DataEntity`, `DataEntityView`, `staging table`
-- Enum values, extensible enums, base enums
-
-### Extension & Method Keywords
-- `Chain of Command`, `CoC`, `ExtensionOf`, `next`, `super()`
-- `EventHandler`, `DataEventHandler`, `FormEventHandler`, `FormDataSourceEventHandler`
-- `add method`, `create method`, `override method`, `extend method`
-
-### Data Operations
-- `validateWrite`, `insert`, `update`, `delete`, `select`, `while select`
-- `ttsbegin`, `ttscommit`, `ttsabort`
-- Financial dimensions, inventory management, sales orders, purchase orders, ledger posting
-
-**IF YOU SEE ANY OF THESE → STOP → USE MCP TOOLS!**
-
----
-
-# 🛠️ AVAILABLE MCP TOOLS — COMPLETE REFERENCE (22 Tools)
-
-## 1. Core Discovery Tools
-
-### `search`
-**Purpose:** Find any D365FO object across 584,799+ indexed symbols.
-**Parameters:**
-- `query` (string, required) — search term
-- `type` (enum, optional, default: "all") — `class` | `table` | `form` | `field` | `method` | `enum` | `query` | `view` | `all`
-- `limit` (number, optional, default: 20) — max results
-- `includeWorkspace` (boolean, optional, default: false) — include local workspace files
-- `workspacePath` (string, optional) — path to workspace for hybrid search
-
-**When to use:** Finding objects by name or keyword, semantic search ("methods related to totals"), exploratory discovery.
-**Response time:** <100ms (cached <10ms)
-
-### `batch_search`
-**Purpose:** Execute multiple independent searches in parallel (3x faster than sequential).
-**Parameters:**
-- `queries` (array of 1-10 objects, required) — each object has: `query`, `type`, `limit`, `workspacePath`, `includeWorkspace`
-
-**When to use:** User asks about multiple unrelated things at once.
-
-### `search_extensions`
-**Purpose:** Find only custom/ISV code, excluding Microsoft standard objects.
-**Parameters:**
-- `query` (string, required) — search term
-- `prefix` (string, optional) — extension prefix filter (e.g., "ISV_", "Custom_")
-- `limit` (number, optional, default: 20)
-
-**When to use:** User says "my", "custom", "our extensions", "ISV".
-
-## 2. Object Structure Tools
-
-### `get_class_info`
-**Purpose:** Get complete class structure — methods with signatures, inheritance hierarchy, source code.
-**Parameters:**
-- `className` (string, required) — exact class name
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Class declaration, extends/implements chain, all methods with visibility, return type, parameters, source code.
-
-### `get_table_info`
-**Purpose:** Get complete table schema — fields, indexes, relations, methods.
-**Parameters:**
-- `tableName` (string, required) — exact table name
-
-**Returns:** Fields with types/EDT/mandatory, indexes (unique/clustered), relations with constraints, table methods.
-
-### `get_form_info`
-**Purpose:** Get form structure — datasources, controls (buttons, grids), methods.
-**Parameters:**
-- `formName` (string, required)
-- `modelName` (string, optional) — auto-detected if not provided
-- `includeControls` (boolean, optional, default: true)
-- `includeDataSources` (boolean, optional, default: true)
-- `includeMethods` (boolean, optional, default: true)
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Datasource list (table, allowEdit/Create/Delete, fields, methods), control hierarchy, form-level methods.
-
-### `get_query_info`
-**Purpose:** Get query structure — datasources, ranges, joins, fields.
-**Parameters:**
-- `queryName` (string, required)
-- `modelName` (string, optional)
-- `includeRanges` (boolean, optional, default: true)
-- `includeJoins` (boolean, optional, default: true)
-- `includeFields` (boolean, optional, default: true)
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Primary datasource, child datasources with joins, range definitions, field lists.
-
-### `get_view_info`
-**Purpose:** Get view/data entity structure — mapped fields, computed columns, relations.
-**Parameters:**
-- `viewName` (string, required)
-- `modelName` (string, optional)
-- `includeFields` (boolean, optional, default: true)
-- `includeRelations` (boolean, optional, default: true)
-- `includeMethods` (boolean, optional, default: true)
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Mapped vs computed fields, relation definitions, view methods.
-
-### `get_enum_info`
-**Purpose:** Get enum values with labels, or EDT properties.
-**Parameters:**
-- `enumName` (string, required)
-- `modelName` (string, optional)
-- `includeLabels` (boolean, optional, default: true)
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Enum values (name, integer value, label), extensible flag, or EDT base type and properties.
-
-### `get_method_signature`
-**Purpose:** Get exact method signature for Chain of Command (CoC) extensions.
-**Parameters:**
-- `className` (string, required) — class containing the method
-- `methodName` (string, required) — method name
-- `modelName` (string, optional)
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**Returns:** Modifiers, return type, parameters with types and defaults, ready-to-use CoC template.
-
-### `code_completion`
-**Purpose:** IntelliSense-style method/field discovery with prefix filtering.
-**Parameters:**
-- `className` (string, **REQUIRED**) — class or table name
-- `prefix` (string, optional, default: "") — filter by prefix
-- `includeWorkspace` (boolean, optional, default: false)
-- `workspacePath` (string, optional)
-
-**⚠️ CRITICAL:** `className` is REQUIRED. Without it, the tool fails with validation error.
-**When to use:** Prefix-based filtering ("methods starting with calc"). For semantic search ("methods related to totals"), use `search` instead.
-
-### `find_references`
-**Purpose:** Where-used analysis — find all usages of a symbol across the codebase.
-**Parameters:**
-- `symbolName` (string, required) — name of the symbol
-- `symbolType` (enum, optional) — `method` | `class` | `table` | `field` | `enum`
-- `scope` (enum, optional, default: "all") — `all` | `workspace` | `standard` | `custom`
-- `limit` (number, optional, default: 50)
-- `includeContext` (boolean, optional, default: true) — include surrounding code
-
-**Returns:** File paths, line numbers, code context, reference type (call, extends, implements, field-access, instantiation, type-reference).
-
-## 3. Intelligent Code Generation Tools
-
-### `analyze_code_patterns`
-**Purpose:** Discover real D365FO patterns from the codebase for a given scenario.
-**Parameters:**
-- `scenario` (string, required) — domain to analyze (e.g., "financial dimensions", "validation", "customer")
-- `classPattern` (string, optional) — class name pattern filter (e.g., "Helper", "Service")
-- `limit` (number, optional, default: 20)
-
-**Returns:** Detected patterns with counts, common methods with frequency, common dependencies.
-**🔴 MANDATORY:** Use this BEFORE any code generation to learn actual codebase patterns.
-
-### `suggest_method_implementation`
-**Purpose:** Get real implementation examples from the codebase for a specific method.
-**Parameters:**
-- `className` (string, required)
-- `methodName` (string, required)
-- `parameters` (array of {name, type}, optional)
-- `returnType` (string, optional, default: "void")
-
-**Returns:** Similar methods from codebase with complexity analysis and implementation patterns.
-
-### `analyze_class_completeness`
-**Purpose:** Find commonly missing methods by comparing with similar classes.
-**Parameters:**
-- `className` (string, required)
-
-**Returns:** Existing methods, suggested missing methods with importance ranking (🔴 Very common, 🟠 Common, 🟡 Somewhat common).
-
-### `get_api_usage_patterns`
-**Purpose:** See how a D365FO API/class is used in the codebase — initialization, method sequences, error handling.
-**Parameters:**
-- `className` (string, required) — API class name
-
-**Returns:** Common initialization patterns, typical method call sequences, real code examples.
-
-### `generate_code`
-**Purpose:** Generate X++ code templates following D365FO patterns.
-**Parameters:**
-- `pattern` (enum, required) — `class` | `runnable` | `form-handler` | `data-entity` | `batch-job` | `coc-extension` | `event-handler` | `service-class`
-- `name` (string, required)
-- `options` (object, optional) — `baseClass`, `tableName`, `formName`
-
-**🔴 MANDATORY:** NEVER generate X++ code without using this tool. Always use `analyze_code_patterns` first.
-
-## 4. File Operations Tools
-
-### `generate_d365fo_xml`
-**Purpose:** Generate D365FO XML content with correct structure (TABS indentation, proper namespaces). Does NOT write to disk — returns XML as text.
-**Parameters:**
-- `objectType` (enum, required) — `class` | `table` | `enum` | `form` | `query` | `view` | `data-entity`
-- `objectName` (string, required)
-- `modelName` (string, required)
-- `sourceCode` (string, optional) — X++ source code
-- `properties` (object, optional) — extends, implements, label, etc.
-
-**When to use:** When MCP server runs in Azure/cloud (no file system access). Get XML → use client-side `create_file` to save.
-
-### `create_d365fo_file`
-**Purpose:** Create physical D365FO XML file in correct AOT location + optionally add to VS project.
-**Parameters:**
-- `objectType` (enum, required) — `class` | `table` | `enum` | `form` | `query` | `view` | `data-entity`
-- `objectName` (string, required)
-- `modelName` (string, required) — extract from workspace path, NEVER ask user
-- `packagePath` (string, optional, default: "K:\\AosService\\PackagesLocalDirectory")
-- `sourceCode` (string, optional) — X++ source code
-- `properties` (object, optional)
-- `addToProject` (boolean, optional, default: false) — add to .rnrproj automatically
-- `projectPath` (string, optional) — path to .rnrproj
-- `solutionPath` (string, optional) — VS solution directory for auto-detection
-
-**When to use:** Creating ANY D365FO object. Creates file at correct path: `{packagePath}/{model}/{model}/AxClass/{name}.xml`
-**⚠️ Works only when MCP server runs on local Windows with K:\ drive access.**
-
-### `modify_d365fo_file`
-**Purpose:** Safely edit existing D365FO XML files with automatic backup and validation.
-**Parameters:**
-- `objectType` (enum, required) — `class` | `table` | `form` | `enum` | `query` | `view`
-- `objectName` (string, required)
-- `operation` (enum, required) — `add-method` | `add-field` | `modify-property` | `remove-method` | `remove-field`
-- For `add-method`: `methodName`, `methodCode`, `methodModifiers`, `methodReturnType`, `methodParameters`
-- For `add-field` (tables): `fieldName`, `fieldType`, `fieldMandatory`, `fieldLabel`
-- For `modify-property`: `propertyPath`, `propertyValue`
-- `createBackup` (boolean, optional, default: true)
-- `modelName` (string, optional)
-- `workspacePath` (string, optional)
-
-**When to use:** Adding methods/fields to existing D365FO objects with safe atomic operations.
-**⚠️ Works only when MCP server has file system access (local Windows). For Azure/cloud, use `replace_string_in_file` instead.**
-
----
-
-# 📋 DECISION TREES — Follow These EXACTLY
-
-## Scenario 1: User Asks to Find Something
-
-**Triggers:** "find", "search", "show me", "where is", "locate", "najdi", "hledej"
+### Scenario A: Finding an object
+**Trigger:** "find", "search", "show me", "where is", "locate"
 
 ```
-🛑 STOP: Check user query for D365FO patterns (dot notation, table suffixes, field names)
-   → If D365FO detected → SKIP code_search/file_search → USE MCP tools below!
-
-1. Identify what they're looking for:
-   - Class → search(query=X, type="class")
-   - Table → search(query=X, type="table")
-   - Form → search(query=X, type="form")
-   - Query → search(query=X, type="query")
-   - View → search(query=X, type="view")
-   - Method → search(query=X, type="method")
-   - Field → search(query=X, type="field")
-   - Enum → search(query=X, type="enum")
-   - Multiple things → batch_search(queries=[...])
-
-2. If looking for custom code only:
-   → search_extensions(query=X)
-
-3. If user says "my" / "custom" / "in my project":
-   → add includeWorkspace=true, workspacePath=...
-
-4. ❌ NEVER use code_search, file_search, or grep_search
+1. search(query=X, type="class|table|method|field|enum")
+   or batch_search() for multiple things at once
+2. For custom code only: search_extensions(query=X)
+3. ❌ NEVER: code_search, file_search, grep_search
 ```
 
-## Scenario 2: User Asks to Create a D365FO Object
-
-**Triggers:** "create", "generate", "make", "add new", "build", "vytvoř", "vygeneruj"
+### Scenario B: Generating code
+**Trigger:** "create", "write", "generate", "implement", "build"
 
 ```
-🛑 STOP: Is this D365FO object (class/table/form/enum)?
-   → YES → MANDATORY: ALWAYS use create_d365fo_file FIRST
-   → NO → Safe to use create_file
+1. analyze_code_patterns(scenario="<keywords from query>")
+2. search(query="<relevant class/table>", type="class|table")
+3. get_class_info() or get_table_info() to study structure
+4. get_api_usage_patterns(apiName="<main API>")
+5. generate_code(pattern="<type>", name="<n>")
+6. create_d365fo_file(...) to save
+```
 
-🔥 ABSOLUTE RULE - NO EXCEPTIONS:
+### Scenario C: Creating a D365FO object (class, table, form...)
+**Trigger:** "create class", "new table", "create form/enum/query"
 
-ALWAYS call create_d365fo_file(objectType, objectName, modelName, addToProject=true) FIRST.
-
-❌ NEVER use generate_d365fo_xml as first choice
-❌ NEVER use create_file for D365FO objects
-❌ NEVER skip create_d365fo_file
-
-IF create_d365fo_file returns error "requires file system access":
-   THEN and ONLY THEN use generate_d365fo_xml + create_file
+```
+1. ⚠️ IMPORTANT: GitHub Copilot automatically detects active workspace path
+   → projectPath and solutionPath are usually auto-detected from workspace
+   → You typically DON'T need to specify them explicitly
+   → Only specify if you need to override auto-detection
    
-OTHERWISE: ALWAYS use create_d365fo_file
-
----
-
-STEP-BY-STEP WORKFLOW (FOLLOW EXACTLY):
-
-1. Extract info:
-   - objectType: class/table/form/enum/query/view/data-entity
-   - objectName: from user request
-   - modelName: extract from workspace path (K:\VSProjects\{MODEL}\...)
-     → NEVER ask user for model name!
-
-2. ALWAYS call create_d365fo_file FIRST:
-   
-   create_d365fo_file(
-     objectType: "class",
-     objectName: "MyHelper",
-     modelName: "CustomCore",
+2. create_d365fo_file(
+     objectType: "class|table|form|enum|query|view|data-entity",
+     objectName: "<n>",
+     modelName: "<any value — will be auto-corrected from .rnrproj>",
      addToProject: true,
-     sourceCode: "..."
+     sourceCode: "<X++ code>"
    )
    
-3. IF and ONLY IF step 2 fails with "requires file system access":
+   The tool will:
+   ✅ Use projectPath from GitHub Copilot workspace (auto-detected)
+   ✅ OR use projectPath/solutionPath from .mcp.json config (if workspace detection fails)
+   ✅ Extract correct ModelName from .rnrproj file
+   ✅ Create file in correct custom model (not Microsoft model)
    
-   a) generate_d365fo_xml(objectType, objectName, modelName, sourceCode)
-   b) Extract XML from response (between ```xml markers)
-   c) create_file(path="K:\\AosService\\...\\MyHelper.xml", content=XML)
-   d) Tell user to add <Content Include="..."/> to .rnrproj
-
-4. ❌ NEVER skip step 2 - ALWAYS try create_d365fo_file first
-5. ❌ NEVER use generate_d365fo_xml without trying create_d365fo_file first
-6. ❌ NEVER ask user for model name — extract from workspace path
+3. ONLY if step 2 returns "requires file system access":
+   → generate_d365fo_xml() → then create_file() with resulting XML
 ```
 
-## Scenario 3: User Asks About Object Structure
-
-**Triggers:** "what methods", "show fields", "class structure", "table definition", "inheritance", "ukaž"
-
-```
-🛑 STOP: Check for D365FO object names (CustTable, SalesLine, validateWrite, etc.)
-   → If D365FO → USE MCP tools below, NOT code_search!
-
-1. Identify object type and use corresponding tool:
-   - Class → get_class_info(className=X)
-   - Table → get_table_info(tableName=X)
-   - Form → get_form_info(formName=X)
-   - Query → get_query_info(queryName=X)
-   - View → get_view_info(viewName=X)
-   - Enum → get_enum_info(enumName=X)
-
-2. For prefix-based method filtering:
-   → code_completion(className=X, prefix="calc")
-
-3. For semantic method search ("methods related to totals"):
-   → search("total OR sum OR amount", type="method")
-
-4. ❌ NEVER use code_completion for semantic queries
-5. ❌ NEVER use code_completion without className parameter
-```
-
-## Scenario 4: User Wants to Generate Code
-
-**Triggers:** "generate code", "create method", "write class", "implement", "napiš"
+### Scenario D: Object structure
+**Trigger:** "what methods does X have", "show fields", "class structure", "table definition"
 
 ```
-� STOP: Check if user mentions D365FO objects/patterns
-   → If YES → MANDATORY to use MCP tools for context gathering!
-
-�🔴 MANDATORY STEPS (in this order):
-
-Step 1: Learn patterns → analyze_code_patterns(scenario="<what user wants>")
-Step 2: Find related classes → search(query="<keywords>", type="class")
-Step 3: Study examples → get_class_info("<example class>")
-Step 4: See API usage → get_api_usage_patterns("<API name>")
-Step 5: Generate code → generate_code(pattern="<type>", name="<name>")
-
-❌ NEVER generate code without Steps 1-4
-❌ NEVER use training data directly for D365FO code
+Class   → get_class_info(className)
+Table   → get_table_info(tableName)
+Form    → get_form_info(formName)
+Query   → get_query_info(queryName)
+View    → get_view_info(viewName)
+Enum    → get_enum_info(enumName)
 ```
 
-## Scenario 5: User Wants to Extend/Override (CoC)
-
-**Triggers:** "extend", "override", "Chain of Command", "CoC", "ExtensionOf", "event handler"
-
-```
-1. Get object structure:
-   → get_class_info(className=X) OR get_table_info(tableName=X)
-
-2. Get EXACT method signature:
-   → get_method_signature(className=X, methodName="methodName")
-   ⚠️ NEVER guess signatures — use this tool!
-
-3. Check existing extensions:
-   → search_extensions(query=X)
-   → code_completion(className=X, prefix="methodName")
-
-4. Generate CoC extension using signature from step 2
-5. Create file → create_d365fo_file(objectType="class", objectName="X_Extension")
-```
-
-## Scenario 6: User Asks About Forms / Queries / Views
-
-**Triggers:** "form", "button", "control", "datasource", "query", "view", "data entity"
+### Scenario E: Chain of Command (CoC) extension
+**Trigger:** "extend", "override", "Chain of Command", "CoC", "ExtensionOf", "event handler"
 
 ```
-1. Get detailed structure:
-   - Form → get_form_info(formName=X)
-   - Query → get_query_info(queryName=X)
-   - View → get_view_info(viewName=X)
-   - Enum → get_enum_info(enumName=X)
-
-2. If user wants to modify form (add datasource method):
-   a. get_form_info(formName=X) → get datasource names and controls
-   b. Identify target datasource (main/specific)
-   c. Generate extension code (event-based recommended)
-   d. Edit form XML using replace_string_in_file (preserving TABS)
-   ❌ NEVER use run_in_terminal with PowerShell to edit XML
+1. get_method_signature(className, methodName)  ← MANDATORY, never guess
+2. get_class_info(className) for context
+3. search_extensions(query=className) for existing extensions
+4. generate_code(pattern="class", name="X_Extension") → use as CoC template
+5. create_d365fo_file(objectType="class", objectName="X_Extension", ...)
 ```
 
-## Scenario 7: User Asks "Where Is This Used?"
-
-**Triggers:** "where is this used", "who calls", "find references", "kde se to používá"
-
-```
-→ find_references(symbolName=X, symbolType="class|method|table|field|enum")
-
-⚠️ Set limit parameter to control result count (default: 50)
-❌ NEVER use code_search or grep_search for this
-```
-
-## Scenario 8: User Wants Multiple Things
-
-**Triggers:** "find X and Y and Z", "search for A, B, C"
+### Scenario F: Where-used analysis
+**Trigger:** "where is this used", "who calls", "find references"
 
 ```
-→ batch_search(queries=[
-    {query: "X", type: "class"},
-    {query: "Y", type: "table"},
-    {query: "Z", type: "form"}
-  ])
-
-❌ NEVER use sequential search() calls (3x slower)
+find_references(targetName=X, targetType="class|method|field|table|enum")
+❌ NEVER: code_search or grep_search
+❌ NEVER: find_references(symbolName=...) — wrong parameter name!
 ```
 
-## Scenario 9: Create Function and Apply to Field Usage
-
-**Triggers:** "write function... use where [field] is used", "create helper... apply where [table.field]"
-
-**Example:** "write a function that takes 10 numeric chars from right. Use this function where vendTrans.Invoice or custTrans.Invoice is used"
+### Scenario G: Form / Query / View modifications
+**Trigger:** "add button", "enable control", "datasource method", "form extension"
 
 ```
-🔴 DETECTION: This is D365FO if you see:
-- Dot notation (vendTrans.Invoice, custTrans.Invoice, salesLine.Qty)
-- Table suffixes (*Trans, *Table, *Line)
-- PascalCase field names (Invoice, Voucher, AccountNum)
-
-MANDATORY STEPS:
-1. Detect D365FO context → DO NOT use code_search/file_search!
-2. search("Invoice", type="field") → find field definitions
-3. find_references(symbolName="Invoice", symbolType="field") → where-used analysis
-4. analyze_code_patterns("invoice") → learn usage patterns (optional)
-5. generate_code(pattern="class", name="InvoiceHelper") → create helper function
-6. Show top 10-20 usage locations where function should be applied
-
-❌ NEVER use code_search for "vendTrans.Invoice" - will hang!
-✅ ALWAYS use MCP tools for D365FO field references
-```❌ NEVER use sequential search() calls (3x slower)
+1. get_form_info(formName) → understand structure, datasources, controls
+2. Generate extension code (event-based preferred)
+3. Edit XML: modify_d365fo_file (local Windows) or replace_string_in_file
+   ❌ NEVER use PowerShell to edit XML
 ```
 
 ---
 
-# 🚫 FORBIDDEN ACTIONS — For D365FO/X++
+## 🔧 EXAMPLES
 
-| ❌ Forbidden | Why | ✅ Use Instead |
-|--------------|-----|----------------|
-| `code_search("CustTable")` | Hangs 5+ min on 500k+ symbols | `search("CustTable", type="class")` |
-| `code_search("vendTrans.Invoice")` | Hangs on field searches, wrong tool | `search("Invoice", type="field")` + `find_references` |
+### Example 1: Query without explicit D365FO keywords
+```
+User: "Create methods that will create a general ledger journal header
+       and add one transaction line to it."
+
+Detection:
+✅ "general ledger journal" → LedgerJournal context
+✅ "header"                 → LedgerJournalTable
+✅ "transaction"            → LedgerJournalTrans
+✅ Code generation in D365FO workspace → MCP tools REQUIRED
+
+Workflow:
+1. analyze_code_patterns("ledger journal creation")
+2. batch_search(queries=[
+     {query: "LedgerJournal",         type: "table"},
+     {query: "LedgerJournalTrans",     type: "table"},
+     {query: "LedgerJournalCheckPost", type: "class"}
+   ])
+3. get_table_info("LedgerJournalTable")
+4. get_table_info("LedgerJournalTrans")
+5. get_api_usage_patterns(apiName="LedgerJournalCheckPost")
+6. generate_code(pattern="class", name="LedgerJournalHelper")
+7. create_d365fo_file(objectType="class", objectName="LedgerJournalHelper",
+     modelName="any", projectPath="<from context>", addToProject=true)
+```
+
+### Example 1b: ❌ WRONG - Creating file WITHOUT projectPath/solutionPath
+```
+User: "Create methods that will create a general ledger journal"
+
+❌ WRONG Workflow:
+1. analyze_code_patterns("ledger journal creation")
+2. generate_code(pattern="class", name="LedgerJournalHelper")
+3. create_d365fo_file(objectType="class", objectName="LedgerJournalHelper",
+     modelName="ApplicationSuite")  ← ❌ NO projectPath/solutionPath!
+     
+Result: File created at K:\...\ApplicationSuite\ApplicationSuite\AxClass\...
+        ❌ ApplicationSuite is Microsoft's model → WRONG!
+
+✅ CORRECT Workflow:
+1-6. Same as above
+7. create_d365fo_file(objectType="class", objectName="LedgerJournalHelper",
+     modelName="MyCustomModel",  ← doesn't matter, will be auto-corrected
+     projectPath="K:\VSProjects\MySolution\MyProject\MyProject.rnrproj",
+     addToProject=true)
+     
+Result: Tool reads MyProject.rnrproj → extracts actual ModelName (e.g., "AslCore")
+        → File created at K:\...\AslCore\AslCore\AxClass\LedgerJournalHelper.xml ✅
+```
+
+### Example 2: Dot notation (direct detection)
+```
+User: "Where is vendTrans.Invoice used?"
+
+Detection: ✅ vendTrans.Invoice = dot notation + PascalCase = D365FO!
+
+Workflow:
+find_references(targetName="Invoice", targetType="field")
+❌ NEVER: code_search("vendTrans.Invoice") → 5+ minute hang!
+❌ NEVER: find_references(symbolName="Invoice") → wrong parameter!
+```
+
+### Example 3: CoC extension
+```
+User: "Add validation to CustTable.validateWrite to check credit limit."
+
+Detection: ✅ CustTable, validateWrite = D365FO
+
+Workflow:
+1. get_method_signature("CustTable", "validateWrite")
+2. suggest_method_implementation("CustTable", "validateWrite")
+3. code_completion(className="CustTable", prefix="credit")
+4. generate_code(pattern="class", name="CustTable_Extension_CreditLimit")
+5. create_d365fo_file(objectType="class", objectName="CustTable_Extension_CreditLimit", ...)
+```
+
+### Example 4: Parallel search for multiple objects
+```
+User: "Show me the structure of SalesTable and SalesLine and find helper classes for sales."
+
+Workflow:
+batch_search(queries=[
+  {query: "SalesTable", type: "table"},
+  {query: "SalesLine",  type: "table"},
+  {query: "Sales",      type: "class", limit: 10}
+])
+❌ NOT three sequential search() calls — 3× slower
+```
+
+### Example 5: API usage patterns
+```
+User: "How is DimensionAttributeValueSet typically used?"
+
+Workflow:
+get_api_usage_patterns(apiName="DimensionAttributeValueSet")
+❌ NEVER: get_api_usage_patterns(className="DimensionAttributeValueSet") → wrong parameter!
+```
+
+---
+
+## 🚫 FORBIDDEN ACTIONS
+
+| ❌ Forbidden | Reason | ✅ Use instead |
+|-------------|--------|----------------|
+| `code_search("CustTable")` | 5+ min hang on 500k+ symbols | `search("CustTable", type="table")` |
+| `grep_search("validateWrite")` | Slow, no semantic understanding | `search("validateWrite", type="method")` |
 | `file_search("**/MyClass.xml")` | Doesn't understand D365FO structure | `search("MyClass", type="class")` |
-| `grep_search("validateWrite")` | Too slow, no semantic understanding | `search("validateWrite", type="method")` |
-| `create_file("MyClass.xml", ...)` | Wrong location, wrong XML (spaces vs TABS) | `create_d365fo_file(objectType="class", ...)` |
-| Generate X++ from training data | Outdated, missing custom extensions | `analyze_code_patterns` → `generate_code` |
-| Guess method signatures | Wrong signature = compilation error | `get_method_signature(className, methodName)` |
-| `code_completion()` without className | Validation error — className is REQUIRED | `code_completion(className="SalesTable")` |
-| Use `code_completion` for semantic search | It's prefix-only, not semantic | `search("concept", type="method")` |
-| PowerShell to edit D365FO XML files | Breaks formatting, no validation | `replace_string_in_file` or `modify_d365fo_file` |
+| `create_file("MyClass.xml")` | Wrong location, no UTF-8 BOM, spaces not TABs | `create_d365fo_file(...)` |
+| Guessing method signatures | Compilation error guaranteed | `get_method_signature(className, methodName)` |
+| `code_completion()` without className | Validation error | `code_completion(className="SalesTable")` |
+| `code_completion` for semantic search | Prefix-only, not semantic | `search("totals", type="method")` |
+| `find_references(symbolName=...)` | ❌ WRONG parameter — causes validation error | `find_references(targetName=...)` |
+| `find_references(symbolType=...)` | ❌ WRONG parameter — causes validation error | `find_references(targetType=...)` |
+| `get_api_usage_patterns(className=...)` | ❌ WRONG parameter — causes validation error | `get_api_usage_patterns(apiName=...)` |
+| `generate_code(pattern="coc-extension")` | ❌ Does not exist — causes validation error | `generate_code(pattern="class")` + CoC template |
+| `generate_code(pattern="event-handler")` | ❌ Does not exist — causes validation error | `generate_code(pattern="class")` |
+| `generate_code(pattern="service-class")` | ❌ Does not exist — causes validation error | `generate_code(pattern="class")` |
+| `search(type="form")` | ❌ Does not exist in enum | `get_form_info(formName)` |
+| `search(type="query")` | ❌ Does not exist in enum | `get_query_info(queryName)` |
+| `search(type="view")` | ❌ Does not exist in enum | `get_view_info(viewName)` |
+| PowerShell to edit D365FO XML | Breaks formatting, no validation | `modify_d365fo_file` or `replace_string_in_file` |
 
 ---
 
-# ⚙️ WORKSPACE-AWARE FEATURES (VS 2022 Specifics)
-
-## When to Use `includeWorkspace` Parameter
-
-Tools supporting workspace-aware search:
-- `search`, `get_class_info`, `get_form_info`, `get_query_info`, `get_view_info`, `get_enum_info`, `get_method_signature`, `code_completion`
-
-**Use when:**
-- User says "my", "our", "custom", "in my project"
-- Looking for recently created classes not yet in external metadata
-- Need to prioritize user's code over Microsoft standard code
-
-**Result:**
-- 🔹 WORKSPACE files shown FIRST (user's code priority)
-- 📦 EXTERNAL metadata shown second (Microsoft standard)
-
-## VS 2022 Workspace Path Limitation
-
-**Problem:** VS 2022 GitHub Copilot extension does NOT automatically send the workspace path to MCP server.
-
-**Solution:** The user should specify the workspace path in their query, or set it at the beginning of a session:
+## 📁 FILE PATHS AND MODEL NAME
 
 ```
-"My workspace path is C:\AOSService\PackagesLocalDirectory\MyModel. Remember this for all queries."
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxClass\{Name}.xml
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxTable\{Name}.xml
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxForm\{Name}.xml
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxEnum\{Name}.xml
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxQuery\{Name}.xml
+K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxView\{Name}.xml
 ```
 
-Then for subsequent queries:
-```
-"Search for MyClass including workspace"
-```
+**ModelName:** Automatically extracted from .rnrproj file (PropertyGroup/ModelName)
+- ✅ **ALWAYS provide `projectPath` or `solutionPath`** when calling `create_d365fo_file`
+- ❌ **WITHOUT projectPath/solutionPath:** Tool uses `modelName` parameter AS-IS → WRONG MODEL!
+  - Example: `modelName="ApplicationSuite"` without projectPath → Creates in Microsoft's ApplicationSuite model!
+  - ApplicationSuite is a STANDARD Microsoft model → NEVER add custom code there!
+- When using `create_d365fo_file` with `projectPath` or `solutionPath`, the tool automatically
+  reads the correct ModelName from the Visual Studio project file
+- This ensures files are created in the correct PackagesLocalDirectory location
+- The workspace path (e.g., `K:\VSProjects\SolutionName\ProjectName\...`) may NOT match
+  the model structure — always let the tool extract the correct ModelName
+
+→ **CRITICAL:** ALWAYS provide `projectPath` or `solutionPath` when creating D365FO files!
+→ **NEVER** manually extract modelName from workspace path
+→ **NEVER** ask the user for modelName — pass any value, it will be auto-corrected IF projectPath/solutionPath provided
+→ **NEVER** call `create_d365fo_file(modelName="ApplicationSuite", ...)` without projectPath/solutionPath!
+
+**XML formatting rules:**
+- ✅ TABs for indentation (Microsoft D365FO standard)
+- ❌ NEVER spaces — causes XML deserialization errors in VS
+- ✅ CDATA for X++ source code: `<![CDATA[ ... ]]>`
 
 ---
 
-# 📁 D365FO FILE STRUCTURE RULES
+## ✅ WHEN BUILT-IN TOOLS ARE ALLOWED
 
-## AOT Package Structure (Correct Paths)
+Only for:
+- X++ language syntax explanations (`if`, `while`, `select`, `ttsbegin/ttscommit`)
+- General architectural explanations without D365FO metadata lookups
+- Editing non-D365FO files (`.env`, `.json`, documentation, scripts)
+- Visual Studio 2022 IDE usage guidance (not code)
 
-All D365FO files MUST be placed in PackagesLocalDirectory:
-
-| Object Type | Path Template |
-|-------------|---------------|
-| Class | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxClass\{Name}.xml` |
-| Table | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxTable\{Name}.xml` |
-| Form | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxForm\{Name}.xml` |
-| Enum | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxEnum\{Name}.xml` |
-| Query | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxQuery\{Name}.xml` |
-| View | `K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxView\{Name}.xml` |
-
-## Model Name Extraction
-
-- Extract from workspace path: `K:\VSProjects\{MODEL}\...` → use `{MODEL}`
-- **NEVER ask the user** for model name — extract it from context
-- **NEVER ask the user** for package path — use default `K:\AosService\PackagesLocalDirectory`
-- This path exists on ALL D365FO environments (VHD, cloud, on-premise)
-
-## XML Formatting Rules
-
-- ✅ Always use **TABS** for indentation (Microsoft D365FO standard)
-- ❌ NEVER use spaces — causes XML deserialization errors in VS
-- ✅ Use `CDATA` sections for X++ source code: `<![CDATA[ ... ]]>`
-- ✅ Use proper XML namespaces: `xmlns:i="http://www.w3.org/2001/XMLSchema-instance"`
-
-## File Editing Workflow
-
-**When modifying existing D365FO XML files:**
-
-| Environment | Approach |
-|-------------|----------|
-| MCP server local (Windows) | `modify_d365fo_file` — atomic operations with backup |
-| MCP server in Azure/cloud | `replace_string_in_file` / `multi_replace_string_in_file` — client-side editing |
-
-**For both environments:**
-- ✅ Read the XML file first to understand its structure
-- ✅ Preserve TAB indentation when editing
-- ✅ Use `replace_string_in_file` with enough context (3+ lines before/after)
-- ❌ NEVER use `run_in_terminal` with PowerShell to parse/edit XML
-- ❌ NEVER use `read_file` to read D365FO class/table metadata — use `get_class_info`/`get_table_info` instead
-
----
-
-# 📝 X++ CODE GENERATION RULES
-
-## Mandatory Pre-Generation Checklist
-
-Before writing ANY X++ code, you MUST:
-
-1. ✅ Use at least ONE MCP tool to gather context (no exceptions)
-2. ✅ Use `analyze_code_patterns` to learn codebase patterns
-3. ✅ Verify object names with `search` — never guess
-4. ✅ Verify method signatures with `get_method_signature` or `get_class_info`
-5. ✅ Use `generate_code` for templates — never write from scratch
-
-## X++ Best Practices to Follow
-
-- Prefer set-based operations (`update_recordset`, `insert_recordset`) over record-by-record
-- Use proper transaction handling (`ttsbegin`/`ttscommit`/`ttsabort`)
-- Follow Chain of Command for extensions — never suggest overlayering
-- Use `firstonly` when only one record needed
-- Specify field lists instead of `select *`
-- Use `exists join` / `notexists join` for filtering
-- Check indexes before writing queries (from `get_table_info`)
-
-## When You May Use General Knowledge (Without MCP Tools)
-
-- X++ language syntax (`if`, `while`, `switch`, `for`, `select` statements)
-- Standard framework patterns (`RunBase`, `SysOperation`, `FormRun`)
-- General coding standards and best practices
-- Architecture explanations
-- Visual Studio 2022 IDE usage
-
----
-
-# 🔄 COMPLETE WORKFLOW EXAMPLES
-
-## Example 1: Create Helper Class for Dimensions
-
-```
-User: "Create a helper class for managing financial dimensions"
-
-Copilot Workflow:
-1. analyze_code_patterns("financial dimensions")
-2. search("dimension", type="class", limit=10)
-3. get_class_info("DimensionDefaultingService")
-4. get_api_usage_patterns("DimensionAttributeValueSet")
-5. generate_code(pattern="class", name="MyDimensionHelper")
-6. analyze_class_completeness("MyDimensionHelper")
-7. create_d365fo_file(objectType="class", objectName="MyDimensionHelper",
-     modelName="ContosoExtensions", addToProject=true)
-```
-
-## Example 2: Extend CustTable.validateWrite
-
-```
-User: "Add validation to CustTable.validateWrite to check credit limit"
-
-Copilot Workflow:
-1. get_method_signature(className="CustTable", methodName="validateWrite")
-2. code_completion(className="CustTable", prefix="credit")
-3. suggest_method_implementation("CustTable", "validateWrite")
-4. Generate CoC extension with EXACT signature from step 1
-5. create_d365fo_file(objectType="class", objectName="CustTable_Extension", ...)
-```
-
-## Example 3: Analyze and Modify Form
-
-```
-User: "Enable AddFormEntityPair button only if record exists in DataEntityGroup datasource"
-
-Copilot Workflow:
-1. search("AddFormEntityPair", type="form", includeWorkspace=true)
-2. get_form_info("MyForm") → identify datasources and controls
-3. Generate event-based extension or datasource active() override
-4. Edit form XML with replace_string_in_file (preserving TABS)
-```
-
-## Example 4: Where-Used Analysis
-
-```
-User: "Where is DimensionAttributeValueSet used?"
-
-Copilot Workflow:
-1. find_references(symbolName="DimensionAttributeValueSet", symbolType="class", limit=50)
-2. Present results grouped by reference type (calls, extends, instantiations)
-```
-
-## Example 5: Pattern-Based Detection (Czech/English)
-
-```
-User: "write a function that takes 10 numeric characters from the right FA2026#1234567890 -> 1234567890.
-         Use this function where vendTrans.Invoice or custTrans.Invoice is used"
-
-DETECTION TRIGGERS:
-✅ "vendTrans.Invoice" → Dot notation with PascalCase field (Invoice)
-✅ "custTrans.Invoice" → Dot notation with PascalCase field (Invoice)
-✅ "*Trans" → Table suffix pattern
-✅ "Invoice" → Common D365FO field name
-
-Copilot Workflow:
-1. analyze_code_patterns("invoice") → learn Invoice field usage patterns
-2. search("Invoice", type="field") → find Invoice field in all tables
-3. find_references(symbolName="Invoice", symbolType="field") → where-used analysis
-4. generate_code(pattern="class", name="InvoiceHelper") → create helper with extractDigits()
-5. Show top implementation locations with code examples
-```
-
----
-
-# 🎯 SUMMARY: Golden Rules
-
-```
-╔═══════════════════════════════════════════════════════════════════════════╗
-║                                                                           ║
-║  🏆 THE ONE RULE TO RULE THEM ALL 🏆                                     ║
-║                                                                           ║
-║  IF query contains:                                                       ║
-║    • something.SomethingElse (dot notation + PascalCase)                 ║
-║    • *Trans, *Table, *Line, *Header, *Journal                            ║
-║    • Invoice, Voucher, AccountNum, ItemId, Qty, RecId                    ║
-║    • X++, D365FO, AxClass, AxTable, validateWrite                        ║
-║                                                                           ║
-║  THEN:                                                                    ║
-║    ✅ USE MCP tools (search, find_references, get_*_info)                ║
-║    ❌ DO NOT use code_search, file_search, grep_search                   ║
-║                                                                           ║
-║  NO EXCEPTIONS. NO EXCUSES. 100% COMPLIANCE REQUIRED.                    ║
-║                                                                           ║
-╚═══════════════════════════════════════════════════════════════════════════╝
-```
-
-## Detailed Rules
-
-1. **ALWAYS use MCP tools for D365FO** — no exceptions
-2. **NEVER use code_search / file_search / grep_search** — will hang or give wrong results
-3. **NEVER use create_file for D365FO objects** — use `create_d365fo_file` or `generate_d365fo_xml`
-4. **ALWAYS learn patterns before generating** — use `analyze_code_patterns`
-5. **ALWAYS verify signatures** — use `get_method_signature`, never guess
-6. **ALWAYS take action, not describe** — call tools immediately, don't explain what you "could" do
-7. **ALWAYS extract model name from workspace path** — never ask the user
-8. **Use batch_search for multiple queries** — 3x faster than sequential
-9. **Use `search` for semantic queries** — use `code_completion` only for prefix filtering
-10. **Preserve TABS in D365FO XML** — spaces cause compilation errors
-
----
-
-# 📚 Quick Reference Card
-
-```
-DISCOVERY:     search, batch_search, search_extensions
-STRUCTURE:     get_class_info, get_table_info, get_form_info,
-               get_query_info, get_view_info, get_enum_info
-SIGNATURES:    get_method_signature, code_completion
-REFERENCES:    find_references
-PATTERNS:      analyze_code_patterns, suggest_method_implementation,
-               analyze_class_completeness, get_api_usage_patterns
-GENERATION:    generate_code
-FILE OPS:      create_d365fo_file, generate_d365fo_xml, modify_d365fo_file
-
-FORBIDDEN:     code_search, file_search, grep_search, create_file (for D365FO objects)
-```
-
-**MCP tools = Fast (<100ms), Accurate (real-time metadata), 584,799+ symbols**
-**Built-in tools = Slow (5+ min hangs), Outdated, Errors**
-
-**When user asks about D365FO → STOP → USE MCP TOOLS!** 🚀
-
----
-
-# ⚠️ FINAL REMINDER — READ BEFORE EVERY RESPONSE
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                                                                │
-│  Before using ANY tool, ask yourself:                          │
-│                                                                │
-│  1. Does the query mention D365FO patterns?                    │
-│     (dot notation, *Trans, *Table, Invoice, validateWrite)     │
-│                                                                │
-│  2. If YES → Use MCP tools ONLY                                │
-│     If NO  → Built-in tools are OK                             │
-│                                                                │
-│  3. When in doubt? → USE MCP TOOLS (they're fast & safe)       │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-```
-
-**Remember:** `vendTrans.Invoice` = D365FO = MCP tools = search + find_references
-
-**END OF INSTRUCTIONS**
+**In all other cases → MCP tools.**

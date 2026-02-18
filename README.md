@@ -49,6 +49,26 @@ This MCP server provides GitHub Copilot with complete knowledge of your D365 F&O
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### ⚙️ Configuration (.mcp.json)
+
+Configure workspace paths in `.mcp.json` to enable automatic path detection and prevent creating files in Microsoft models:
+
+```json
+{
+  "servers": {
+    "xpp-completion": {
+      "url": "http://localhost:3000/mcp/"
+    },
+    "context": {
+      "workspacePath": "K:\\AOSService\\PackagesLocalDirectory\\YourModel",
+      "projectPath": "K:\\VSProjects\\YourSolution\\YourProject.rnrproj"
+    }
+  }
+}
+```
+
+**See [MCP_CONFIG.md](docs/MCP_CONFIG.md) for complete configuration guide.**
+
 ## ⚠️ Important for GitHub Copilot Users
 
 **When working with this repository, GitHub Copilot MUST use the specialized X++ MCP tools, NOT the built-in search tools.**
@@ -433,6 +453,8 @@ For detailed architecture diagrams with Mermaid visualizations, see [ARCHITECTUR
 | Document | Description |
 |----------|-------------|
 | [**SETUP.md**](docs/SETUP.md) | Complete setup guide for local and Azure deployment |
+| [**MCP_CONFIG.md**](docs/MCP_CONFIG.md) | `.mcp.json` configuration guide for workspace paths |
+| [**WORKSPACE_DETECTION.md**](docs/WORKSPACE_DETECTION.md) | How automatic workspace detection works with GitHub Copilot |
 | [**USAGE_EXAMPLES.md**](docs/USAGE_EXAMPLES.md) | Practical examples and use cases |
 | [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture and design |
 | [**PIPELINES.md**](docs/PIPELINES.md) | Azure DevOps pipeline automation |

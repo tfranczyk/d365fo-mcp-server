@@ -22,6 +22,7 @@ lerna-debug.log*
 *.db
 *.db-shm
 *.db-wal
+*.db.tmp
 *.db.tmp-shm
 *.db.tmp-wal
 *.sqlite

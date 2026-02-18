@@ -8,6 +8,8 @@ import * as path from 'path';
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { Parser, Builder } from 'xml2js';
+import { getConfigManager } from '../utils/configManager.js';
+import { registerCustomModel } from '../utils/modelClassifier.js';
 
 const CreateD365FileArgsSchema = z.object({
   objectType: z
@@ -521,6 +523,60 @@ class ProjectFileManager {
 
     console.error(`[ProjectFileManager] Project file saved successfully`);
   }
+
+  /**
+   * Extract ModelName from Visual Studio project file
+   * Returns the actual model name from PropertyGroup/Model or PropertyGroup/ModelName
+   */
+  async extractModelName(projectPath: string): Promise<string | null> {
+    try {
+      console.error(
+        `[ProjectFileManager] Extracting model name from: ${projectPath}`
+      );
+
+      // Read project file
+      const projectXml = await fs.readFile(projectPath, 'utf-8');
+      const project = await this.parser.parseStringPromise(projectXml);
+
+      // Look for PropertyGroup with Model or ModelName
+      if (project.Project && project.Project.PropertyGroup) {
+        const propertyGroups = Array.isArray(project.Project.PropertyGroup)
+          ? project.Project.PropertyGroup
+          : [project.Project.PropertyGroup];
+
+        for (const group of propertyGroups) {
+          // Try <Model> tag first (standard D365FO format)
+          if (group.Model) {
+            const modelName = group.Model;
+            console.error(
+              `[ProjectFileManager] Found Model in project: ${modelName}`
+            );
+            return modelName;
+          }
+          
+          // Fallback to <ModelName> tag (alternative format)
+          if (group.ModelName) {
+            const modelName = group.ModelName;
+            console.error(
+              `[ProjectFileManager] Found ModelName in project: ${modelName}`
+            );
+            return modelName;
+          }
+        }
+      }
+
+      console.error(
+        `[ProjectFileManager] No Model or ModelName found in project file`
+      );
+      return null;
+    } catch (error) {
+      console.error(
+        `[ProjectFileManager] Error extracting model name:`,
+        error
+      );
+      return null;
+    }
+  }
 }
 
 /**
@@ -532,6 +588,126 @@ export async function handleCreateD365File(
   const args = CreateD365FileArgsSchema.parse(request.params.arguments);
 
   try {
+    // Step 1: Try to find and parse .rnrproj to get actual ModelName
+    let actualModelName = args.modelName;
+    let wasAutoExtracted = false;
+    let projectPathToUse = args.projectPath;
+    let solutionPathToUse = args.solutionPath;
+    
+    console.error(
+      `[create_d365fo_file] Initial modelName: ${actualModelName}`
+    );
+
+    // If neither projectPath nor solutionPath provided, try to get from config or auto-detect
+    if (!projectPathToUse && !solutionPathToUse) {
+      const configManager = getConfigManager();
+      
+      // Try to auto-detect from workspace (async)
+      projectPathToUse = await configManager.getProjectPath() || undefined;
+      solutionPathToUse = await configManager.getSolutionPath() || undefined;
+      
+      if (projectPathToUse) {
+        console.error(
+          `[create_d365fo_file] Using projectPath (auto-detected or from .mcp.json): ${projectPathToUse}`
+        );
+      } else if (solutionPathToUse) {
+        console.error(
+          `[create_d365fo_file] Using solutionPath (auto-detected or from .mcp.json): ${solutionPathToUse}`
+        );
+      }
+    }
+
+    // If projectPath is available, extract model name from it
+    if (projectPathToUse) {
+      const projectManager = new ProjectFileManager();
+      const extractedModelName = await projectManager.extractModelName(
+        projectPathToUse
+      );
+      if (extractedModelName) {
+        actualModelName = extractedModelName;
+        wasAutoExtracted = true;
+        console.error(
+          `[create_d365fo_file] Extracted ModelName from projectPath: ${actualModelName}`
+        );
+        
+        // ✨ Register extracted model as custom (since it came from user's project)
+        registerCustomModel(actualModelName);
+      }
+    }
+    // If solutionPath is available, try to find .rnrproj and extract model name
+    else if (solutionPathToUse) {
+      const foundProjectPath = await ProjectFileFinder.findProjectInSolution(
+        solutionPathToUse,
+        args.modelName
+      );
+      
+      if (foundProjectPath) {
+        const projectManager = new ProjectFileManager();
+        const extractedModelName = await projectManager.extractModelName(
+          foundProjectPath
+        );
+        if (extractedModelName) {
+          actualModelName = extractedModelName;
+          wasAutoExtracted = true;
+          console.error(
+            `[create_d365fo_file] Extracted ModelName from solutionPath .rnrproj: ${actualModelName}`
+          );
+          
+          // ✨ Register extracted model as custom (since it came from user's project)
+          registerCustomModel(actualModelName);
+        }
+      }
+    }
+
+    // ⚠️ CRITICAL WARNING: If no project/solution path available anywhere
+    if (!projectPathToUse && !solutionPathToUse) {
+      console.error(
+        `[create_d365fo_file] ⚠️ WARNING: No projectPath or solutionPath available (not in args, not in .mcp.json)!`
+      );
+      console.error(
+        `[create_d365fo_file] ⚠️ Using modelName AS-IS: "${actualModelName}"`
+      );
+      console.error(
+        `[create_d365fo_file] ⚠️ If "${actualModelName}" is a Microsoft model (e.g., ApplicationSuite), this will create the file in the WRONG location!`
+      );
+      console.error(
+        `[create_d365fo_file] ⚠️ Add projectPath or solutionPath to .mcp.json config to auto-extract correct ModelName from .rnrproj!`
+      );
+      
+      // Extra validation: Check for suspicious model names
+      const suspiciousNames = ['auto', 'test', 'example', 'temp', 'undefined', 'null'];
+      if (suspiciousNames.includes(actualModelName.toLowerCase())) {
+        const errorMsg = `❌ ERROR: modelName "${actualModelName}" appears to be a placeholder value, not a real D365FO model!\n\n` +
+          `To fix this issue:\n` +
+          `1. Create a .mcp.json file with your actual D365FO project paths:\n` +
+          `   {\n` +
+          `     "servers": {\n` +
+          `       "context": {\n` +
+          `         "projectPath": "K:\\\\VSProjects\\\\YourSolution\\\\YourProject\\\\YourProject.rnrproj",\n` +
+          `         "packagePath": "K:\\\\AosService\\\\PackagesLocalDirectory"\n` +
+          `       }\n` +
+          `     }\n` +
+          `   }\n\n` +
+          `2. Or provide projectPath/solutionPath in the tool call arguments\n\n` +
+          `3. Or specify the actual modelName of your custom D365FO model (e.g., "AslCore", "MyCustomModel")`;
+        
+        console.error(`[create_d365fo_file] ${errorMsg}`);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: errorMsg
+            }
+          ]
+        };
+      }
+    }
+
+    console.error(
+      `[create_d365fo_file] Final ModelName to use: ${actualModelName}${wasAutoExtracted ? ' (auto-extracted ✓)' : ' (as-is, NOT auto-extracted ⚠️)'}`
+    );
+
     // Determine object folder based on type
     const objectFolderMap: Record<string, string> = {
       class: 'AxClass',
@@ -548,13 +724,24 @@ export async function handleCreateD365File(
       throw new Error(`Unsupported object type: ${args.objectType}`);
     }
 
-    // Construct full path
+    // Construct full path using actualModelName
+    // Try to get package path from .mcp.json config first
+    const configManager = getConfigManager();
+    const configPackagePath = configManager.getPackagePath();
+    
     const basePath =
-      args.packagePath || 'K:\\AosService\\PackagesLocalDirectory';
+      args.packagePath || 
+      configPackagePath || 
+      'K:\\AosService\\PackagesLocalDirectory';
+    
+    console.error(
+      `[create_d365fo_file] Using package path: ${basePath}${configPackagePath ? ' (from .mcp.json config)' : args.packagePath ? ' (from args)' : ' (default)'}`
+    );
+    
     const modelPath = path.join(
       basePath,
-      args.modelName,
-      args.modelName,
+      actualModelName,
+      actualModelName,
       objectFolder
     );
     const fileName = `${args.objectName}.xml`;
@@ -757,7 +944,7 @@ export async function handleCreateD365File(
           text: `✅ Successfully created D365FO ${args.objectType} file:\n\n` +
             `📁 Path: ${normalizedFullPath}\n` +
             `📄 Object: ${args.objectName}\n` +
-            `📦 Model: ${args.modelName}\n` +
+            `📦 Model: ${actualModelName}\n` +
             `🔧 Type: ${objectFolder}\n` +
             projectMessage +
             `\n${nextSteps}\n` +

@@ -14,6 +14,7 @@ import { RedisCacheService } from './cache/redisCache.js';
 import { WorkspaceScanner } from './workspace/workspaceScanner.js';
 import { HybridSearch } from './workspace/hybridSearch.js';
 import { downloadDatabaseFromBlob } from './database/download.js';
+import { initializeConfig } from './utils/configManager.js';
 import * as fs from 'fs/promises';
 
 const PORT = parseInt(process.env.PORT || '8080');
@@ -44,6 +45,21 @@ async function initializeServices() {
   console.log('🚀 Starting X++ MCP Code Completion Server...');
 
   try {
+    // Load .mcp.json configuration
+    console.log('⚙️  Loading .mcp.json configuration...');
+    const config = await initializeConfig();
+    if (config && config.servers.context) {
+      console.log('✅ Configuration loaded from .mcp.json');
+      if (config.servers.context.workspacePath) {
+        console.log(`   Workspace path: ${config.servers.context.workspacePath}`);
+      }
+      if (config.servers.context.packagePath) {
+        console.log(`   Package path: ${config.servers.context.packagePath}`);
+      }
+    } else {
+      console.log('ℹ️  No .mcp.json configuration found, using defaults');
+    }
+
     // Initialize cache service
     console.log('💾 Initializing cache service...');
     serverState.statusMessage = 'Connecting to Redis...';
