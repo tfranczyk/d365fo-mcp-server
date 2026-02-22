@@ -12,18 +12,31 @@ describe('XppMetadataParser parseViewFile', () => {
     const xml = `<?xml version="1.0" encoding="utf-8"?>
 <AxDataEntityView xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
   <Name>TestEntity</Name>
+  <Label>@Test:TestEntityLabel</Label>
   <IsPublic>Yes</IsPublic>
   <IsReadOnly>No</IsReadOnly>
-  <PrimaryKey>RecId</PrimaryKey>
+  <PrimaryKey>PrimaryIndex</PrimaryKey>
+  <Keys>
+    <AxDataEntityViewKey>
+      <Name>PrimaryIndex</Name>
+      <Fields>
+        <AxDataEntityViewKeyField>
+          <DataField>AccountNum</DataField>
+        </AxDataEntityViewKeyField>
+      </Fields>
+    </AxDataEntityViewKey>
+  </Keys>
   <Fields>
     <AxDataEntityViewField>
       <Name>AccountNum</Name>
       <DataSource>CustTable</DataSource>
       <DataField>AccountNum</DataField>
+      <Label>@SYS12345</Label>
     </AxDataEntityViewField>
     <AxDataEntityViewField>
       <Name>DisplayName</Name>
       <DataMethod>computeDisplayName</DataMethod>
+      <Label>@Test:DisplayNameLabel</Label>
     </AxDataEntityViewField>
   </Fields>
   <Relations>
@@ -32,6 +45,12 @@ describe('XppMetadataParser parseViewFile', () => {
       <RelatedDataEntity>CustCustomerV3Entity</RelatedDataEntity>
       <RelationType>Association</RelationType>
       <Cardinality>ZeroOne</Cardinality>
+      <Fields>
+        <AxDataEntityViewRelationField>
+          <DataField>AccountNum</DataField>
+          <RelatedDataField>CustomerAccount</RelatedDataField>
+        </AxDataEntityViewRelationField>
+      </Fields>
     </AxDataEntityViewRelation>
   </Relations>
   <Methods>
@@ -52,8 +71,14 @@ describe('XppMetadataParser parseViewFile', () => {
     expect(result.data?.name).toBe('TestEntity');
     expect(result.data?.type).toBe('data-entity');
     expect(result.data?.fields.length).toBe(2);
+    expect(result.data?.primaryKeyFields).toEqual(['AccountNum']);
+    expect(result.data?.fields.find(f => f.name === 'AccountNum')?.labelId).toBe('@SYS12345');
+    expect(result.data?.fields.find(f => f.name === 'DisplayName')?.labelId).toBe('@Test:DisplayNameLabel');
     expect(result.data?.fields.find(f => f.name === 'DisplayName')?.isComputed).toBe(true);
     expect(result.data?.relations.length).toBe(1);
+    expect(result.data?.relations[0].fields).toEqual([
+      { field: 'AccountNum', relatedField: 'CustomerAccount' },
+    ]);
     expect(result.data?.methods.length).toBe(1);
   });
 });

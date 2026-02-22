@@ -16,6 +16,7 @@ import type {
   XppIndexInfo,
   XppRelationInfo,
   XppViewFieldInfo,
+  XppViewRelationFieldInfo,
   XppViewRelationInfo,
 } from './types.js';
 import { EnhancedXppParser } from './enhancedParser.js';
@@ -163,9 +164,10 @@ export class XppMetadataParser {
         isPublic: axView.IsPublic === 'Yes' || axView.IsPublic === 'true',
         isReadOnly: axView.IsReadOnly === 'Yes' || axView.IsReadOnly === 'true',
         primaryKey: axView.PrimaryKey || undefined,
+        primaryKeyFields: this.parseViewPrimaryKeyFields(axView.Keys, axView.PrimaryKey),
         fields: this.parseViewFields(axView.Fields),
         relations: this.parseViewRelations(axView.Relations),
-        methods: this.parseMethods(axView.Methods?.Method, viewName),
+        methods: this.parseMethods(axView.SourceCode?.Methods?.Method, viewName),
       };
 
       return { success: true, data: viewInfo };
@@ -297,6 +299,7 @@ export class XppMetadataParser {
       dataSource: field.DataSource || undefined,
       dataField: field.DataField || undefined,
       dataMethod: field.DataMethod || undefined,
+      labelId: this.extractLabelId(field.Label),
       isComputed: !!field.DataMethod,
     }));
   }
@@ -313,7 +316,53 @@ export class XppMetadataParser {
       relatedTable: relation.RelatedDataEntity || relation.RelatedTable || 'unknown',
       relationType: relation.RelationType || 'Unknown',
       cardinality: relation.Cardinality || 'Unknown',
+      fields: this.parseViewRelationFields(relation),
     }));
+  }
+
+  private parseViewPrimaryKeyFields(keysData: any, primaryKeyName?: string): string[] {
+    if (!keysData) return [];
+
+    const keys = this.ensureArray(keysData.AxDataEntityViewKey);
+    const keyNode = primaryKeyName
+      ? keys.find((key: any) => key.Name === primaryKeyName)
+      : keys[0];
+
+    if (!keyNode || !keyNode.Fields) return [];
+
+    const keyFields = this.ensureArray(keyNode.Fields.AxDataEntityViewKeyField);
+    return keyFields
+      .map((field: any) => field.DataField || field.Name || '')
+      .filter((field: string) => !!field);
+  }
+
+  private parseViewRelationFields(relation: any): XppViewRelationFieldInfo[] {
+    const mappings: XppViewRelationFieldInfo[] = [];
+
+    const relationFields = this.ensureArray(relation?.Fields?.AxDataEntityViewRelationField);
+    for (const field of relationFields) {
+      mappings.push({
+        field: field.DataField || field.Field || field.Name || '',
+        relatedField: field.RelatedDataField || field.RelatedField || '',
+      });
+    }
+
+    const constraints = this.ensureArray(relation?.Constraints?.AxDataEntityViewRelationConstraint);
+    for (const constraint of constraints) {
+      mappings.push({
+        field: constraint.DataField || constraint.Field || '',
+        relatedField: constraint.RelatedDataField || constraint.RelatedField || '',
+      });
+    }
+
+    return mappings.filter(mapping => !!mapping.field || !!mapping.relatedField);
+  }
+
+  private extractLabelId(labelValue?: string): string | undefined {
+    if (!labelValue || typeof labelValue !== 'string') return undefined;
+    const trimmed = labelValue.trim();
+    if (!trimmed.startsWith('@')) return undefined;
+    return trimmed;
   }
 
   private ensureArray<T>(value: T | T[] | undefined): T[] {

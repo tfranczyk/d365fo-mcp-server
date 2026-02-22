@@ -92,7 +92,13 @@ export interface XppViewFieldInfo {
   dataSource?: string;
   dataField?: string;
   dataMethod?: string;
+  labelId?: string;
   isComputed: boolean;
+}
+
+export interface XppViewRelationFieldInfo {
+  field: string;
+  relatedField: string;
 }
 
 export interface XppViewRelationInfo {
@@ -100,6 +106,7 @@ export interface XppViewRelationInfo {
   relatedTable: string;
   relationType: string;
   cardinality: string;
+  fields: XppViewRelationFieldInfo[];
 }
 
 export interface XppViewInfo {
@@ -111,6 +118,7 @@ export interface XppViewInfo {
   isPublic: boolean;
   isReadOnly: boolean;
   primaryKey?: string;
+  primaryKeyFields: string[];
   fields: XppViewFieldInfo[];
   relations: XppViewRelationInfo[];
   methods: XppMethodInfo[];

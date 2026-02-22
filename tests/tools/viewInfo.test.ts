@@ -29,12 +29,23 @@ describe('get_view_info tool', () => {
 	<Label>@TestModel:TestDataEntityLabel</Label>
 \t<IsPublic>Yes</IsPublic>
 \t<IsReadOnly>No</IsReadOnly>
-\t<PrimaryKey>Key1</PrimaryKey>
-\t<Fields>
+	<PrimaryKey>Key1</PrimaryKey>
+	<Keys>
+		<AxDataEntityViewKey>
+			<Name>Key1</Name>
+			<Fields>
+				<AxDataEntityViewKeyField>
+					<DataField>CustomerAccount</DataField>
+				</AxDataEntityViewKeyField>
+			</Fields>
+		</AxDataEntityViewKey>
+	</Keys>
+	<Fields>
 \t\t<AxDataEntityViewField>
 \t\t\t<Name>CustomerAccount</Name>
 \t\t\t<DataSource>CustTable</DataSource>
-\t\t\t<DataField>AccountNum</DataField>
+			<DataField>AccountNum</DataField>
+			<Label>@TestModel:CustomerAccountLabel</Label>
 \t\t</AxDataEntityViewField>
 \t\t<AxDataEntityViewField>
 \t\t\t<Name>CustomerName</Name>
@@ -51,7 +62,13 @@ describe('get_view_info tool', () => {
 \t\t\t<Name>CustTransRelation</Name>
 \t\t\t<RelatedDataEntity>CustTransEntity</RelatedDataEntity>
 \t\t\t<RelationType>Association</RelationType>
-\t\t\t<Cardinality>ZeroMore</Cardinality>
+			<Cardinality>ZeroMore</Cardinality>
+			<Fields>
+				<AxDataEntityViewRelationField>
+					<DataField>CustomerAccount</DataField>
+					<RelatedDataField>AccountNum</RelatedDataField>
+				</AxDataEntityViewRelationField>
+			</Fields>
 \t\t</AxDataEntityViewRelation>
 \t</Relations>
 \t<Methods>
@@ -146,6 +163,7 @@ describe('get_view_info tool', () => {
     expect(text).toContain('**Public:** ✅');
     expect(text).toContain('**Read-Only:** ❌');
     expect(text).toContain('**Primary Key:** Key1');
+    expect(text).toContain('**Primary Key Fields:** CustomerAccount');
   });
 
   it('should extract mapped fields', async () => {
@@ -172,6 +190,7 @@ describe('get_view_info tool', () => {
     expect(text).toContain('CustomerAccount');
     expect(text).toContain('CustTable');
     expect(text).toContain('AccountNum');
+    expect(text).toContain('@TestModel:CustomerAccountLabel');
     expect(text).toContain('CustomerName');
     expect(text).toContain('Name');
   });
@@ -254,6 +273,8 @@ describe('get_view_info tool', () => {
     expect(text).toContain('CustTransEntity');
     expect(text).toContain('Association');
     expect(text).toContain('ZeroMore');
+    expect(text).toContain('Relation Field Mappings');
+    expect(text).toContain('| CustTransRelation | CustomerAccount | AccountNum |');
   });
 
   it('should extract methods', async () => {
@@ -367,15 +388,25 @@ describe('get_view_info tool', () => {
           isPublic: true,
           isReadOnly: false,
           primaryKey: 'RecId',
+          primaryKeyFields: ['AccountNum'],
           fields: [
             {
               name: 'AccountNum',
               dataSource: 'CustTable',
               dataField: 'AccountNum',
+              labelId: '@TestModel:AccountNumLabel',
               isComputed: false,
             },
           ],
-          relations: [],
+          relations: [
+            {
+              name: 'FallbackRel',
+              relatedTable: 'CustTable',
+              relationType: 'Association',
+              cardinality: 'ZeroOne',
+              fields: [{ field: 'AccountNum', relatedField: 'AccountNum' }],
+            },
+          ],
           methods: [{ name: 'computeSomething' }],
         },
         null,
@@ -397,7 +428,7 @@ describe('get_view_info tool', () => {
         arguments: {
           viewName: fallbackViewName,
           includeFields: true,
-          includeRelations: false,
+          includeRelations: true,
           includeMethods: true,
         },
       },
@@ -409,7 +440,10 @@ describe('get_view_info tool', () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain(fallbackViewName);
     expect(text).toContain('**Label:** @TestModel:FallbackDataEntityLabel');
+    expect(text).toContain('**Primary Key Fields:** AccountNum');
     expect(text).toContain('AccountNum');
+    expect(text).toContain('@TestModel:AccountNumLabel');
+    expect(text).toContain('| FallbackRel | AccountNum | AccountNum |');
     expect(text).toContain('computeSomething');
 
     await fs.rm(extractedPath, { force: true });

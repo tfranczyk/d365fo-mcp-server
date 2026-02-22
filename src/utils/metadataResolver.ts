@@ -27,7 +27,13 @@ export interface ExtractedViewField {
   dataSource?: string;
   dataField?: string;
   dataMethod?: string;
+  labelId?: string;
   isComputed: boolean;
+}
+
+export interface ExtractedViewRelationField {
+  field: string;
+  relatedField: string;
 }
 
 export interface ExtractedViewRelation {
@@ -35,6 +41,7 @@ export interface ExtractedViewRelation {
   relatedTable: string;
   relationType: string;
   cardinality: string;
+  fields?: ExtractedViewRelationField[];
 }
 
 export interface ExtractedViewMetadata {
@@ -46,6 +53,7 @@ export interface ExtractedViewMetadata {
   isPublic?: boolean;
   isReadOnly?: boolean;
   primaryKey?: string;
+  primaryKeyFields?: string[];
   fields: ExtractedViewField[];
   relations: ExtractedViewRelation[];
   methods: Array<{ name: string } | string>;
