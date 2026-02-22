@@ -28,15 +28,16 @@ graph TB
         end
         
         subgraph "Storage"
-            BLOB[Azure Blob Storage<br/>xpp-metadata.db<br/>~2GB]
+            BLOB[Azure Blob Storage<br/>Symbols: xpp-metadata.db (~1-1.5GB)<br/>Labels: xpp-metadata-labels.db (~500MB for 4 languages)]
         end
     end
 
     subgraph "MCP Server Components"
         HTTP[HTTP Transport Layer<br/>Express + Rate Limiting]
         PROTO[MCP Protocol Handler<br/>JSON-RPC 2.0]
-        TOOLS[Tool Handlers<br/>20 MCP Tools]
-        DB[(SQLite Database<br/>FTS5 Full-Text Search<br/>584,799 symbols)]
+        TOOLS[Tool Handlers<br/>23 MCP Tools]
+        DB[(Symbols Database<br/>FTS5 Full-Text Search<br/>584,799 symbols)]
+        LDB[(Labels Database<br/>FTS5 Full-Text Search<br/>19M+ labels, 70 languages)]
         CACHE[Redis Cache<br/>Optional]
     end
 
@@ -47,6 +48,7 @@ graph TB
     HTTP --> PROTO
     PROTO --> TOOLS
     TOOLS --> DB
+    TOOLS --> LDB
     TOOLS -.->|"Optional"| CACHE
     
     style VS fill:#68217A,color:#fff
@@ -54,6 +56,7 @@ graph TB
     style MCP fill:#00A4EF,color:#fff
     style BLOB fill:#FF6C00,color:#fff
     style DB fill:#4CAF50,color:#fff
+    style LDB fill:#4CAF50,color:#fff
     style CACHE fill:#DC382D,color:#fff
 ```
 
@@ -349,6 +352,12 @@ graph TB
 
 ## Database Schema
 
+**Dual-Database Architecture** for performance optimization:
+- **Symbols Database** (`xpp-metadata.db`, ~1-1.5 GB) — Fast symbol searches
+- **Labels Database** (`xpp-metadata-labels.db`, ~500 MB for 4 languages, up to 8 GB for all 70 languages) — Isolated label storage
+
+### Symbols Database
+
 ```mermaid
 erDiagram
     SYMBOLS {
@@ -383,6 +392,35 @@ erDiagram
     
     SYMBOLS ||--|| SYMBOLS_FTS : "mirrored for FTS5"
 ```
+
+### Labels Database
+
+```mermaid
+erDiagram
+    LABELS {
+        integer id PK
+        text label_id "Label ID (e.g., MyLabel)"
+        text label_file_id "File ID (e.g., AslCore)"
+        text model "Model name"
+        text language "Language code (en-US, cs, sk, de)"
+        text text "Translated text"
+        text comment "Developer comment"
+        text file_path "Source .label.txt file"
+    }
+    
+    LABELS_FTS {
+        text label_id "FTS5 indexed"
+        text text "FTS5 indexed"
+        text comment "FTS5 indexed"
+    }
+    
+    LABELS ||--|| LABELS_FTS : "mirrored for FTS5"
+```
+
+**Why Separate Databases?**
+- Symbol searches ignore label rows → **10-30× faster**
+- Labels DB size depends on language selection (4 languages = ~500 MB, 70 languages = ~8 GB)
+- Each database has its own SQLite cache and optimization settings
 
 ### Symbol Types
 
@@ -867,7 +905,7 @@ graph LR
 
 ### Current Capacity
 
-- **Storage:** ~2GB database (584,799 symbols)
+- **Storage:** ~1-1.5 GB symbols database + ~500 MB labels database (4 languages) = ~2 GB total
 - **Memory:** 1.75GB (P0v3) - ~800MB used
 - **Throughput:** 100 req/15min per IP
 - **Latency:** 

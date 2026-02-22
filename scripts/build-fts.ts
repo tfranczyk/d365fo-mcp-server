@@ -34,6 +34,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const OUTPUT_DB     = process.env.DB_PATH       || './data/xpp-metadata.db';
+const OUTPUT_LABELS_DB = process.env.LABELS_DB_PATH || './data/xpp-metadata-labels.db';
 const PACKAGES_PATH = process.env.PACKAGES_PATH || 'K:\\AosService\\PackagesLocalDirectory';
 const INCLUDE_LABELS = process.env.INCLUDE_LABELS !== 'false'; // default: true
 const EXTRACT_MODE  = process.env.EXTRACT_MODE  || 'all';
@@ -41,6 +42,7 @@ const EXTRACT_MODE  = process.env.EXTRACT_MODE  || 'all';
 async function buildFts(): Promise<void> {
   console.log('🔍 Phase 2: Building FTS index + labels');
   console.log(`💾 Database: ${OUTPUT_DB}`);
+  console.log(`💾 Labels DB: ${OUTPUT_LABELS_DB}`);
   console.log(`⚙️  Extract mode: ${EXTRACT_MODE}`);
   console.log('');
 
@@ -50,7 +52,7 @@ async function buildFts(): Promise<void> {
     process.exit(1);
   }
 
-  const symbolIndex = new XppSymbolIndex(OUTPUT_DB);
+  const symbolIndex = new XppSymbolIndex(OUTPUT_DB, OUTPUT_LABELS_DB);
 
   // Use same bulk-load pragmas for the FTS rebuild (important: no WAL during heavy writes)
   symbolIndex.db.pragma('journal_mode = MEMORY');
@@ -59,6 +61,14 @@ async function buildFts(): Promise<void> {
   symbolIndex.db.pragma('cache_size = -64000');
   symbolIndex.db.pragma('temp_store = MEMORY');
   symbolIndex.db.pragma('mmap_size = 268435456');
+  
+  // Same optimizations for labels database
+  symbolIndex.labelsDb.pragma('journal_mode = MEMORY');
+  symbolIndex.labelsDb.pragma('synchronous = OFF');
+  symbolIndex.labelsDb.pragma('locking_mode = EXCLUSIVE');
+  symbolIndex.labelsDb.pragma('cache_size = -64000');
+  symbolIndex.labelsDb.pragma('temp_store = MEMORY');
+  symbolIndex.labelsDb.pragma('mmap_size = 268435456');
 
   const totalStart = Date.now();
 
@@ -99,11 +109,15 @@ async function buildFts(): Promise<void> {
   }
 
   // ── Finalize: convert to WAL mode for production ───────────────────────────
-  console.log('\n🔄 Converting database to WAL mode for production...');
+  console.log('\n🔄 Converting databases to WAL mode for production...');
   symbolIndex.db.pragma('locking_mode = NORMAL');
   symbolIndex.db.pragma('journal_mode = WAL');
   symbolIndex.db.pragma('synchronous = NORMAL');
-  console.log('✅ Database converted to WAL mode');
+  
+  symbolIndex.labelsDb.pragma('locking_mode = NORMAL');
+  symbolIndex.labelsDb.pragma('journal_mode = WAL');
+  symbolIndex.labelsDb.pragma('synchronous = NORMAL');
+  console.log('✅ Databases converted to WAL mode');
 
   // Persist ANALYZE stats + optimizer hints into the DB so the production
   // server can open it instantly without re-running expensive maintenance.

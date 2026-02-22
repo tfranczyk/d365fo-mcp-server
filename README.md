@@ -202,7 +202,7 @@ Approximate monthly cost:
 | Resource | Configuration | Monthly cost |
 |----------|--------------|-------------|
 | App Service P0v3 | 1 vCPU, 4 GB RAM | ~$62 |
-| Blob Storage | 2 GB | ~$3 |
+| Blob Storage | 2 GB (1-1.5 GB symbols + 500 MB labels) | ~$3 |
 | Redis Cache (optional) | Basic C0 | ~$16 |
 | **Total without Redis** | | **~$65 / month** |
 
@@ -219,7 +219,7 @@ Full setup instructions in [docs/SETUP.md](docs/SETUP.md).
 | [docs/WORKSPACE_DETECTION.md](docs/WORKSPACE_DETECTION.md) | How the server auto-detects your model from `.rnrproj` |
 | [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | All 23 tools explained with example prompts |
 | [docs/USAGE_EXAMPLES.md](docs/USAGE_EXAMPLES.md) | Practical examples: searching, code generation, CoC extensions |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture (for contributors) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture, dual-database design, performance optimization |
 | [docs/CUSTOM_EXTENSIONS.md](docs/CUSTOM_EXTENSIONS.md) | ISV partner and custom model configuration |
 | [docs/PIPELINES.md](docs/PIPELINES.md) | Automating metadata extraction with Azure DevOps |
 | [docs/TESTING.md](docs/TESTING.md) | Running the test suite |

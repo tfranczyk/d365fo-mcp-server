@@ -23,6 +23,8 @@ variables:
     value: './metadata'
   - name: DB_PATH
     value: './database/xpp-metadata.db'
+  - name: LABELS_DB_PATH
+    value: './database/xpp-metadata-labels.db'
   - name: PACKAGES_DIR_NAME
     value: 'PackagesLocalDirectory'
   - name: PACKAGES_ZIP_PATH
@@ -175,6 +177,7 @@ stages:
             timeoutInMinutes: 110
             env:
               DB_PATH: $(DB_PATH)
+              LABELS_DB_PATH: $(LABELS_DB_PATH)
               INCLUDE_LABELS: 'false'
               NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
 

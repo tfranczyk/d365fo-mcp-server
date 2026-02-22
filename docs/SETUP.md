@@ -21,7 +21,7 @@ Complete guide for installing and deploying the D365 F&O MCP Server.
 - **Azure CLI** (for Azure deployment only)
 
 ### Azure Resources (cloud deployment only)
-- **Azure Blob Storage** — stores the metadata database (~2 GB)
+- **Azure Blob Storage** — stores the metadata databases (~2 GB total: 1-1.5 GB symbols + 500 MB labels for 4 languages)
 - **Azure App Service** — B1 minimum, P0v3 recommended for production
 - **Azure Cache for Redis** — optional, speeds up repeated queries
 
@@ -59,8 +59,14 @@ PACKAGES_PATH=C:/AosService/PackagesLocalDirectory
 CUSTOM_MODELS=YourModel1,YourModel2
 EXTENSION_PREFIX=YourCompanyPrefix
 
-# Where to store the database
-DB_PATH=./data/xpp-metadata.db
+# Where to store the databases (dual-database architecture)
+DB_PATH=./data/xpp-metadata.db                 # Symbols database (~1-1.5 GB)
+LABELS_DB_PATH=./data/xpp-metadata-labels.db   # Labels database (~500 MB for 4 languages, up to 8 GB for all 70)
+
+# Languages to index from AxLabelFile (reduces labels DB size)
+# Default: en-US,cs,sk,de (4 languages)
+# Use 'all' for all 70+ languages (database will be 8+ GB)
+LABEL_LANGUAGES=en-US,cs,sk,de
 
 # Azure Blob Storage (only needed for cloud sync)
 AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
@@ -84,13 +90,17 @@ $env:EXTRACT_MODE="all"; npm run extract-metadata
 
 ### 4. Build the Database
 
-Index all extracted symbols into the SQLite database:
+Index all extracted symbols into the SQLite databases:
 
 ```powershell
 npm run build-database
 ```
 
-This creates `data/xpp-metadata.db` (~2 GB for full extraction).
+This creates:
+- `data/xpp-metadata.db` — Symbols database (~1-1.5 GB)
+- `data/xpp-metadata-labels.db` — Labels database (~500 MB for 4 languages, up to 8 GB for all 70 languages)
+
+**Performance:** Separated databases ensure symbol search remains fast (<500ms) even with 20M+ labels.
 
 ### 5. Start the Server
 
