@@ -41,11 +41,9 @@ stages:
   - stage: ExtractAndUpload
     displayName: 'Extract Standard Metadata and Upload to Blob'
     jobs:
-      # ──────────────────────────────────────────────────────────────────────
-      # Single Job – Download, extract, build complete database with labels and FTS
-      # ──────────────────────────────────────────────────────────────────────
-      - job: BuildComplete
-        displayName: 'Download → Extract → Build Complete Database with Labels'
+      - job: ProcessJob
+        displayName: 'Download → Extract → Upload'
+        # Increase default timeout to 2 hours (requires paid hosted agent)
         timeoutInMinutes: 120
         steps:
           # ========== Checkout MCP Server code from GitHub ==========
@@ -53,8 +51,8 @@ stages:
             displayName: 'Checkout MCP Server code from GitHub'
             path: mcp-server
 
-          # ========== Install Node.js and Dependencies ==========
-
+          # ========== Step 1: Install Node.js and Dependencies ==========
+          
           - task: NodeTool@0
             displayName: 'Install Node.js'
             inputs:
@@ -64,8 +62,8 @@ stages:
             displayName: 'Install NPM dependencies'
             workingDirectory: '$(MCP_SERVER_PATH)'
 
-          # ========== Download PackagesLocalDirectory.zip ==========
-
+          # ========== Step 2: Download PackagesLocalDirectory.zip from Azure Blob ==========
+          
           - script: |
               echo "Downloading $(PACKAGES_DIR_NAME).zip from Azure Blob Storage..."
               az storage blob download \
@@ -74,23 +72,26 @@ stages:
                 --name $(PACKAGES_DIR_NAME).zip \
                 --file $(PACKAGES_ZIP_PATH) \
                 --output table
+              
               echo "Download completed successfully"
               ls -lh $(PACKAGES_ZIP_PATH)
             displayName: 'Download $(PACKAGES_DIR_NAME).zip from Azure Blob'
             env:
               AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
 
-          # ========== Extract PackagesLocalDirectory.zip ==========
-
+          # ========== Step 3: Extract PackagesLocalDirectory.zip ==========
+          
           - script: |
               echo "Extracting $(PACKAGES_DIR_NAME).zip..."
               unzip -q $(PACKAGES_ZIP_PATH) -d $(Pipeline.Workspace)
+              
               echo "Extraction completed successfully"
+              echo "Contents of extracted directory:"
               ls -la $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)
             displayName: 'Extract $(PACKAGES_DIR_NAME).zip'
 
-          # ========== Extract Metadata ==========
-
+          # ========== Step 4: Extract Metadata ==========
+          
           - script: npm run extract-metadata
             displayName: 'Extract standard metadata from packages'
             workingDirectory: '$(MCP_SERVER_PATH)'
@@ -99,8 +100,8 @@ stages:
               METADATA_PATH: $(METADATA_PATH)
               EXTRACT_MODE: 'standard'
 
-          # ========== Upload Metadata to Blob Storage ==========
-
+          # ========== Step 5: Upload Metadata to Blob Storage ==========
+          
           - script: npm run blob-manager upload-standard
             displayName: 'Upload standard metadata to Azure Blob'
             workingDirectory: '$(MCP_SERVER_PATH)'
@@ -109,52 +110,26 @@ stages:
               BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
               METADATA_PATH: $(METADATA_PATH)
 
-          # ========== Build Complete Database with Labels and FTS ==========
-          # INCLUDE_LABELS=true — Build labels database from PackagesLocalDirectory
-          # Models are sorted largest-first (Foundation 56K files → first commit).
-
-          - script: |
-              echo "============================================"
-              echo "Pre-build diagnostics for label indexing:"
-              echo "============================================"
-              echo "PACKAGES_PATH will be set to: $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)"
-              echo "Checking if path exists:"
-              if [ -d "$(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)" ]; then
-                echo "✅ Directory exists"
-                echo "Sample label files found:"
-                find $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME) -name "*.label.txt" -type f | head -10
-              else
-                echo "❌ Directory does NOT exist!"
-                echo "Available directories in Pipeline.Workspace:"
-                ls -la $(Pipeline.Workspace)
-              fi
-              echo "============================================"
-              echo ""
-              npm run build-database
-            displayName: 'Build complete database with labels and FTS'
+          # ========== Step 6: Build Database ==========
+          
+          - script: npm run build-database
+            displayName: 'Build database from standard metadata'
             workingDirectory: '$(MCP_SERVER_PATH)'
-            timeoutInMinutes: 100
+            timeoutInMinutes: 120  # Increase timeout to 2 hours for 350+ models
             env:
               METADATA_PATH: $(METADATA_PATH)
               DB_PATH: $(DB_PATH)
               LABELS_DB_PATH: $(LABELS_DB_PATH)
-              PACKAGES_PATH: $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)
+              PACKAGES_PATH: $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)  # Path to PackagesLocalDirectory for label indexing
               EXTRACT_MODE: 'standard'
-              INCLUDE_LABELS: 'true'
-              COMPUTE_STATS: 'false'
-              ENABLE_SEARCH_SUGGESTIONS: 'false'
-              NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
+              INCLUDE_LABELS: 'true'  # Index AxLabelFile labels from PackagesLocalDirectory
+              LABEL_LANGUAGES: 'en-US,cs,sk,de'  # Languages to index (or 'all' for all languages)
+              COMPUTE_STATS: 'true'  # Enable usage statistics computation
+              ENABLE_SEARCH_SUGGESTIONS: 'false'  # Disable suggestions in CI/CD to reduce memory usage
+              NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'  # 4GB heap for single-transaction indexing
 
-          # ========== Upload Final Databases ==========
-
-          - script: npm run blob-manager upload-database
-            displayName: 'Upload main database to Azure Blob'
-            workingDirectory: '$(MCP_SERVER_PATH)'
-            env:
-              AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
-              BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
-              DB_PATH: $(DB_PATH)
-
+          # ========== Step 7: Upload Database to Blob Storage ==========
+          
           - script: npm run blob-manager upload-database
             displayName: 'Upload labels database to Azure Blob'
             workingDirectory: '$(MCP_SERVER_PATH)'
@@ -171,17 +146,20 @@ stages:
               action: 'Restart Azure App Service'
               webAppName: '$(AZURE_APP_SERVICE_NAME)'
 
+          # ========== Step 8: Log Completion ==========
+          
           - script: |
               echo ""
               echo "============================================"
               echo "Standard metadata extraction completed!"
               echo "============================================"
               echo ""
-              echo "✅ Metadata extracted and uploaded"
-              echo "✅ Complete database built with labels and FTS"
-              echo "✅ Main database uploaded to Azure Blob"
-              echo "✅ Labels database uploaded to Azure Blob"
-              echo "✅ App Service restarted"
+              echo "✅ $(PACKAGES_DIR_NAME).zip downloaded from Azure Blob"
+              echo "✅ Package extracted"
+              echo "✅ Metadata extracted"
+              echo "✅ Metadata uploaded to: metadata/standard/"
+              echo "✅ Database built"
+              echo "✅ Database uploaded to Azure Blob"
               echo ""
               echo "Next step: Run custom pipeline to update custom models"
               echo "============================================"
