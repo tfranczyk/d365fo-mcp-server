@@ -164,8 +164,11 @@ async function buildDatabase() {
     } else {
       const labelStart = Date.now();
 
-      // For incremental builds, clear only the affected models' labels
-      if (modelsToRebuild.length > 0) {
+      // For incremental builds of specific custom models, clear and re-index only those models' labels
+      // For full standard rebuild, index all standard model labels (not limited to modelsToRebuild)
+      const isIncrementalCustomBuild = modelsToRebuild.length > 0 && EXTRACT_MODE === 'custom';
+      
+      if (isIncrementalCustomBuild) {
         symbolIndex.clearLabelsForModels(modelsToRebuild);
         const { totalLabels, modelsIndexed } = await indexAllLabels(
           symbolIndex,

@@ -36,17 +36,16 @@ variables:
 
 stages:
   # ============================================================================
-  # Single Stage: Download, Extract, and Upload
+  # Single Stage: Download, Extract, Build Database with Labels, and Upload
   # ============================================================================
   - stage: ExtractAndUpload
     displayName: 'Extract Standard Metadata and Upload to Blob'
     jobs:
       # ──────────────────────────────────────────────────────────────────────
-      # Job 1 – Download, extract, build symbol rows only  (Phase 1)
-      # FTS rebuild is deferred to Job 2 so each job fits within 120 min.
+      # Single Job – Download, extract, build complete database with labels and FTS
       # ──────────────────────────────────────────────────────────────────────
-      - job: BuildSymbols
-        displayName: 'Phase 1: Download → Extract → Build Symbols'
+      - job: BuildComplete
+        displayName: 'Download → Extract → Build Complete Database with Labels'
         timeoutInMinutes: 120
         steps:
           # ========== Checkout MCP Server code from GitHub ==========
@@ -110,86 +109,59 @@ stages:
               BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
               METADATA_PATH: $(METADATA_PATH)
 
-          # ========== Phase 1: Build symbol rows, skip FTS ==========
-          # SKIP_FTS=true defers the FTS rebuild to Job 2 (build-fts).
-          # INCLUDE_LABELS=false — PackagesLocalDirectory not available in Job 2.
+          # ========== Build Complete Database with Labels and FTS ==========
+          # INCLUDE_LABELS=true — Build labels database from PackagesLocalDirectory
           # Models are sorted largest-first (Foundation 56K files → first commit).
 
-          - script: npm run build-database
-            displayName: 'Build symbols database (Phase 1 – SKIP_FTS=true)'
+          - script: |
+              echo "============================================"
+              echo "Pre-build diagnostics for label indexing:"
+              echo "============================================"
+              echo "PACKAGES_PATH will be set to: $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)"
+              echo "Checking if path exists:"
+              if [ -d "$(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)" ]; then
+                echo "✅ Directory exists"
+                echo "Sample label files found:"
+                find $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME) -name "*.label.txt" -type f | head -10
+              else
+                echo "❌ Directory does NOT exist!"
+                echo "Available directories in Pipeline.Workspace:"
+                ls -la $(Pipeline.Workspace)
+              fi
+              echo "============================================"
+              echo ""
+              npm run build-database
+            displayName: 'Build complete database with labels and FTS'
             workingDirectory: '$(MCP_SERVER_PATH)'
-            timeoutInMinutes: 110
+            timeoutInMinutes: 100
             env:
               METADATA_PATH: $(METADATA_PATH)
               DB_PATH: $(DB_PATH)
+              LABELS_DB_PATH: $(LABELS_DB_PATH)
+              PACKAGES_PATH: $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)
               EXTRACT_MODE: 'standard'
-              SKIP_FTS: 'true'
-              INCLUDE_LABELS: 'false'
+              INCLUDE_LABELS: 'true'
               COMPUTE_STATS: 'false'
               ENABLE_SEARCH_SUGGESTIONS: 'false'
               NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
 
-          # ========== Pass partial DB to Job 2 via pipeline artifact ==========
-
-          - task: PublishPipelineArtifact@1
-            displayName: 'Publish partial database artifact'
-            inputs:
-              targetPath: '$(MCP_SERVER_PATH)/database/xpp-metadata.db'
-              artifact: 'xpp-metadata-db'
-              publishLocation: 'pipeline'
-
-      # ──────────────────────────────────────────────────────────────────────
-      # Job 2 – Rebuild FTS index, finalize, upload  (Phase 2)
-      # Runs on a fresh agent after Job 1 completes.
-      # ──────────────────────────────────────────────────────────────────────
-      - job: BuildFTS
-        displayName: 'Phase 2: Rebuild FTS Index → Upload'
-        dependsOn: BuildSymbols
-        timeoutInMinutes: 120
-        steps:
-          - checkout: mcpServer
-            displayName: 'Checkout MCP Server code from GitHub'
-            path: mcp-server
-
-          - task: NodeTool@0
-            displayName: 'Install Node.js'
-            inputs:
-              versionSpec: $(nodeVersion)
-
-          - script: npm ci
-            displayName: 'Install NPM dependencies'
-            workingDirectory: '$(MCP_SERVER_PATH)'
-
-          # ========== Download partial DB from Job 1 ==========
-
-          - task: DownloadPipelineArtifact@2
-            displayName: 'Download partial database artifact'
-            inputs:
-              artifact: 'xpp-metadata-db'
-              targetPath: '$(MCP_SERVER_PATH)/database'
-
-          # ========== Phase 2: FTS rebuild + WAL conversion ==========
-          # INCLUDE_LABELS=false: PackagesLocalDirectory not available on this agent.
-
-          - script: npm run build-fts
-            displayName: 'Rebuild FTS index + finalize database (Phase 2)'
-            workingDirectory: '$(MCP_SERVER_PATH)'
-            timeoutInMinutes: 110
-            env:
-              DB_PATH: $(DB_PATH)
-              LABELS_DB_PATH: $(LABELS_DB_PATH)
-              INCLUDE_LABELS: 'false'
-              NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
-
-          # ========== Upload Final Database ==========
+          # ========== Upload Final Databases ==========
 
           - script: npm run blob-manager upload-database
-            displayName: 'Upload compiled database to Azure Blob'
+            displayName: 'Upload main database to Azure Blob'
             workingDirectory: '$(MCP_SERVER_PATH)'
             env:
               AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
               BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
               DB_PATH: $(DB_PATH)
+
+          - script: npm run blob-manager upload-database
+            displayName: 'Upload labels database to Azure Blob'
+            workingDirectory: '$(MCP_SERVER_PATH)'
+            env:
+              AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
+              BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
+              DB_PATH: $(LABELS_DB_PATH)
 
           # Restart App Service
           - task: AzureAppServiceManage@0
@@ -205,9 +177,10 @@ stages:
               echo "Standard metadata extraction completed!"
               echo "============================================"
               echo ""
-              echo "✅ Metadata extracted and uploaded (Phase 1)"
-              echo "✅ FTS index rebuilt (Phase 2)"
-              echo "✅ Database uploaded to Azure Blob"
+              echo "✅ Metadata extracted and uploaded"
+              echo "✅ Complete database built with labels and FTS"
+              echo "✅ Main database uploaded to Azure Blob"
+              echo "✅ Labels database uploaded to Azure Blob"
               echo "✅ App Service restarted"
               echo ""
               echo "Next step: Run custom pipeline to update custom models"

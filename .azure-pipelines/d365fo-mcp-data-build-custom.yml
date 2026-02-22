@@ -145,22 +145,28 @@ stages:
           # ========== Common Steps for All Modes ==========
           
           # Build database (custom mode: only replaces custom models, standard mode: replaces standard models, all mode: full rebuild)
+          # INCLUDE_LABELS=true with incremental build:
+          # - Standard model labels remain in database (downloaded from blob)
+          # - Only custom model labels are cleared and re-indexed from PACKAGES_PATH
+          # - If .label.txt files are not in Git repo, indexing is skipped with a warning
           - script: |
               if [ "${{ parameters.customModels }}" != "all" ]; then
                 export CUSTOM_MODELS="${{ parameters.customModels }}"
               fi
               npm run build-database
-            displayName: 'Build database'
+            displayName: 'Build database with custom model labels'
             workingDirectory: '$(MCP_SERVER_PATH)'
-            timeoutInMinutes: 120  # Increase timeout to 2 hours for 350+ models
+            timeoutInMinutes: 90
             env:
               METADATA_PATH: $(METADATA_PATH)
               DB_PATH: $(DB_PATH)
               LABELS_DB_PATH: $(LABELS_DB_PATH)
+              PACKAGES_PATH: $(PACKAGES_PATH)
               EXTRACT_MODE: '${{ parameters.extractionMode }}'
-              COMPUTE_STATS: 'false'  # Disable usage statistics computation (saves 1-2 minutes)
-              ENABLE_SEARCH_SUGGESTIONS: 'false'  # Disable suggestions in CI/CD to reduce memory usage
-              NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'  # Increase heap to 8GB for single-transaction indexing
+              INCLUDE_LABELS: 'true'
+              COMPUTE_STATS: 'false'
+              ENABLE_SEARCH_SUGGESTIONS: 'false'
+              NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
 
           # Upload metadata based on mode
           - script: |
@@ -176,9 +182,16 @@ stages:
               BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
               METADATA_PATH: $(METADATA_PATH)
 
-          # Upload database
+          # Upload databases
           - script: npm run blob-manager upload-database $(DB_PATH)
-            displayName: 'Upload database'
+            displayName: 'Upload main database'
+            workingDirectory: '$(MCP_SERVER_PATH)'
+            env:
+              AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
+              BLOB_CONTAINER_NAME: $(BLOB_CONTAINER_NAME)
+
+          - script: npm run blob-manager upload-database $(LABELS_DB_PATH)
+            displayName: 'Upload labels database'
             workingDirectory: '$(MCP_SERVER_PATH)'
             env:
               AZURE_STORAGE_CONNECTION_STRING: $(AZURE_STORAGE_CONNECTION_STRING)
