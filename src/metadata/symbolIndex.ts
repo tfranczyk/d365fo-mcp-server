@@ -18,10 +18,12 @@ const isCI = (): boolean => {
 
 export class XppSymbolIndex {
   public db: Database.Database; // Public for direct pragma access in build scripts
+  public labelsDb: Database.Database; // Separate DB for labels (performance optimization)
   private standardModels: string[] = [];
   private stmtCache: Map<string, Database.Statement> = new Map();
+  private labelsStmtCache: Map<string, Database.Statement> = new Map();
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, labelsDbPath?: string) {
     // Ensure database directory exists
     const dbDir = path.dirname(dbPath);
     if (!fs.existsSync(dbDir)) {
@@ -30,7 +32,13 @@ export class XppSymbolIndex {
 
     this.db = new Database(dbPath);
     
-    // Enable SQLite performance optimizations
+    // 🎯 PERFORMANCE: Separate database for labels
+    // This keeps the main symbol DB small and fast for search operations
+    // Labels DB can be huge (20M+ rows) without affecting search performance
+    const labelPath = labelsDbPath || dbPath.replace('.db', '-labels.db');
+    this.labelsDb = new Database(labelPath);
+    
+    // Enable SQLite performance optimizations for both DBs
     // Note: journal_mode should be set by caller (MEMORY for build, WAL for production)
     if (!this.db.pragma('journal_mode', { simple: true })) {
       // Set default to WAL if not already configured
@@ -40,6 +48,15 @@ export class XppSymbolIndex {
     this.db.pragma('cache_size = -64000'); // 64MB cache (negative = kibibytes)
     this.db.pragma('temp_store = MEMORY'); // Store temp tables in memory
     this.db.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O
+    
+    // Configure labels DB similarly
+    if (!this.labelsDb.pragma('journal_mode', { simple: true })) {
+      this.labelsDb.pragma('journal_mode = WAL');
+    }
+    this.labelsDb.pragma('synchronous = NORMAL');
+    this.labelsDb.pragma('cache_size = -32000'); // 32MB cache for labels
+    this.labelsDb.pragma('temp_store = MEMORY');
+    this.labelsDb.pragma('mmap_size = 134217728'); // 128MB memory-mapped I/O
     // Note: page_size is a no-op on an existing database; only applies to new DBs
     // Note: optimize and ANALYZE are intentionally NOT run here — they are slow
     //       (seconds on 500K+ rows) and the pre-built DB already has persisted stats.
@@ -58,9 +75,16 @@ export class XppSymbolIndex {
     console.log('🔧 Running post-build database optimization (ANALYZE + optimize)...');
     const start = Date.now();
     try {
+      // Optimize main symbol database
       this.db.pragma('analysis_limit = 1000');
       this.db.exec('ANALYZE');
       this.db.pragma('optimize');
+      
+      // Optimize labels database
+      this.labelsDb.pragma('analysis_limit = 1000');
+      this.labelsDb.exec('ANALYZE');
+      this.labelsDb.pragma('optimize');
+      
       const elapsed = ((Date.now() - start) / 1000).toFixed(2);
       console.log(`✅ Post-build optimization complete in ${elapsed}s`);
     } catch (e) {
@@ -195,8 +219,10 @@ export class XppSymbolIndex {
       CREATE INDEX IF NOT EXISTS idx_patterns_domain ON code_patterns(domain);
     `);
 
-    // Create labels table for AxLabelFile indexing
-    this.db.exec(`
+    // 🎯 LABELS MOVED TO SEPARATE DATABASE (labelsDb)
+    // This keeps the main symbol DB fast for search operations
+    // Initialize labels tables in the separate labels database
+    this.labelsDb.exec(`
       CREATE TABLE IF NOT EXISTS labels (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         label_id TEXT NOT NULL,
@@ -209,7 +235,7 @@ export class XppSymbolIndex {
       );
     `);
 
-    this.db.exec(`
+    this.labelsDb.exec(`
       CREATE INDEX IF NOT EXISTS idx_labels_id ON labels(label_id);
       CREATE INDEX IF NOT EXISTS idx_labels_file_id ON labels(label_file_id);
       CREATE INDEX IF NOT EXISTS idx_labels_model ON labels(model);
@@ -219,7 +245,7 @@ export class XppSymbolIndex {
     `);
 
     // FTS5 full-text search for labels (en-US text only – primary search language)
-    this.db.exec(`
+    this.labelsDb.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS labels_fts USING fts5(
         label_id,
         text,
@@ -230,7 +256,7 @@ export class XppSymbolIndex {
     `);
 
     // Only index en-US rows to keep FTS compact (~5x smaller on typical installs)
-    this.db.exec(`
+    this.labelsDb.exec(`
       CREATE TRIGGER IF NOT EXISTS labels_ai AFTER INSERT ON labels WHEN new.language = 'en-US' BEGIN
         INSERT INTO labels_fts(rowid, label_id, text, comment)
         VALUES (new.id, new.label_id, new.text, new.comment);
@@ -1617,16 +1643,16 @@ export class XppSymbolIndex {
     opts?: { skipFtsRebuild?: boolean },
   ): void {
     // Disable FTS triggers during bulk insert
-    this.db.exec(`DROP TRIGGER IF EXISTS labels_ai`);
-    this.db.exec(`DROP TRIGGER IF EXISTS labels_ad`);
-    this.db.exec(`DROP TRIGGER IF EXISTS labels_au`);
+    this.labelsDb.exec(`DROP TRIGGER IF EXISTS labels_ai`);
+    this.labelsDb.exec(`DROP TRIGGER IF EXISTS labels_ad`);
+    this.labelsDb.exec(`DROP TRIGGER IF EXISTS labels_au`);
 
-    const insert = this.db.prepare(`
+    const insert = this.labelsDb.prepare(`
       INSERT OR REPLACE INTO labels (label_id, label_file_id, model, language, text, comment, file_path)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const insertMany = this.db.transaction((rows: typeof entries) => {
+    const insertMany = this.labelsDb.transaction((rows: typeof entries) => {
       for (const e of rows) {
         insert.run(e.labelId, e.labelFileId, e.model, e.language, e.text, e.comment ?? null, e.filePath);
       }
@@ -1640,7 +1666,7 @@ export class XppSymbolIndex {
     }
 
     // Re-create triggers (en-US only to keep FTS compact)
-    this.db.exec(`
+    this.labelsDb.exec(`
       CREATE TRIGGER IF NOT EXISTS labels_ai AFTER INSERT ON labels WHEN new.language = 'en-US' BEGIN
         INSERT INTO labels_fts(rowid, label_id, text, comment)
         VALUES (new.id, new.label_id, new.text, new.comment);
@@ -1665,9 +1691,9 @@ export class XppSymbolIndex {
    */
   rebuildLabelsFts(): void {
     // Clear existing FTS index
-    this.db.exec(`INSERT INTO labels_fts(labels_fts) VALUES('delete-all')`);
+    this.labelsDb.exec(`INSERT INTO labels_fts(labels_fts) VALUES('delete-all')`);
     // Re-populate with en-US rows only
-    this.db.exec(`
+    this.labelsDb.exec(`
       INSERT INTO labels_fts(rowid, label_id, text, comment)
       SELECT id, label_id, text, comment FROM labels WHERE language = 'en-US'
     `);
@@ -1708,9 +1734,9 @@ export class XppSymbolIndex {
     const params: any[] = [ftsQuery];
 
     if (model) {
-      let s = this.stmtCache.get('searchLabels_model');
+      let s = this.labelsStmtCache.get('searchLabels_model');
       if (!s) {
-        s = this.db.prepare(`
+        s = this.labelsDb.prepare(`
           SELECT l.label_id, l.label_file_id, l.model, l.language, l.text, l.comment, l.file_path,
                  f.rank
           FROM labels_fts f
@@ -1720,14 +1746,14 @@ export class XppSymbolIndex {
           ORDER BY f.rank
           LIMIT ?
         `);
-        this.stmtCache.set('searchLabels_model', s);
+        this.labelsStmtCache.set('searchLabels_model', s);
       }
       stmt = s;
       params.push(model, limit);
     } else {
-      let s = this.stmtCache.get('searchLabels_nomodel');
+      let s = this.labelsStmtCache.get('searchLabels_nomodel');
       if (!s) {
-        s = this.db.prepare(`
+        s = this.labelsDb.prepare(`
           SELECT l.label_id, l.label_file_id, l.model, l.language, l.text, l.comment, l.file_path,
                  f.rank
           FROM labels_fts f
@@ -1736,7 +1762,7 @@ export class XppSymbolIndex {
           ORDER BY f.rank
           LIMIT ?
         `);
-        this.stmtCache.set('searchLabels_nomodel', s);
+        this.labelsStmtCache.set('searchLabels_nomodel', s);
       }
       stmt = s;
       params.push(limit);
@@ -1762,7 +1788,7 @@ export class XppSymbolIndex {
     const params: any[] = [pattern, pattern, language];
 
     const stmtKey = model ? 'searchLabelsLike_model' : 'searchLabelsLike_nomodel';
-    let stmt = this.stmtCache.get(stmtKey);
+    let stmt = this.labelsStmtCache.get(stmtKey);
     if (!stmt) {
       let sql = `
         SELECT label_id, label_file_id, model, language, text, comment, file_path, 0 as rank
@@ -1772,8 +1798,8 @@ export class XppSymbolIndex {
       `;
       if (model) sql += ` AND model = ?`;
       sql += ` LIMIT ?`;
-      stmt = this.db.prepare(sql);
-      this.stmtCache.set(stmtKey, stmt);
+      stmt = this.labelsDb.prepare(sql);
+      this.labelsStmtCache.set(stmtKey, stmt);
     }
 
     if (model) params.push(model);
@@ -1806,7 +1832,7 @@ export class XppSymbolIndex {
     if (labelFileId) { sql += ` AND label_file_id = ?`; params.push(labelFileId); }
     if (model)       { sql += ` AND model = ?`;         params.push(model); }
     sql += ` ORDER BY language`;
-    return this.db.prepare(sql).all(...params) as any[];
+    return this.labelsDb.prepare(sql).all(...params) as any[];
   }
 
   /**
@@ -1814,7 +1840,7 @@ export class XppSymbolIndex {
    */
   getLabelFileIds(model?: string): Array<{ labelFileId: string; model: string; languages: string }> {
     if (model) {
-      return this.db.prepare(`
+      return this.labelsDb.prepare(`
         SELECT label_file_id AS labelFileId, model, GROUP_CONCAT(DISTINCT language) AS languages
         FROM labels
         WHERE model = ?
@@ -1822,7 +1848,7 @@ export class XppSymbolIndex {
         ORDER BY label_file_id
       `).all(model) as any[];
     }
-    return this.db.prepare(`
+    return this.labelsDb.prepare(`
       SELECT label_file_id AS labelFileId, model, GROUP_CONCAT(DISTINCT language) AS languages
       FROM labels
       GROUP BY label_file_id, model
@@ -1835,7 +1861,7 @@ export class XppSymbolIndex {
    */
   clearLabelsForModels(models: string[]): void {
     const placeholders = models.map(() => '?').join(',');
-    this.db.prepare(`DELETE FROM labels WHERE model IN (${placeholders})`).run(...models);
+    this.labelsDb.prepare(`DELETE FROM labels WHERE model IN (${placeholders})`).run(...models);
     this.rebuildLabelsFts();
   }
 
@@ -1843,7 +1869,7 @@ export class XppSymbolIndex {
    * Total label count
    */
   getLabelCount(): number {
-    const row = this.db.prepare(`SELECT COUNT(*) AS cnt FROM labels`).get() as any;
+    const row = this.labelsDb.prepare(`SELECT COUNT(*) AS cnt FROM labels`).get() as any;
     return row?.cnt ?? 0;
   }
 }

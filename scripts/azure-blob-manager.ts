@@ -307,42 +307,91 @@ export class AzureBlobMetadataManager {
    * Upload compiled database to blob storage
    */
   async uploadDatabase(dbPath: string): Promise<void> {
-    console.log('\n📤 Uploading compiled database to Azure Blob Storage');
+    console.log('\n📤 Uploading compiled databases to Azure Blob Storage');
     
-    const blobName = 'database/xpp-metadata.db';
-    const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
+    // Upload main symbols database
+    const mainBlobName = 'database/xpp-metadata.db';
+    const mainBlockBlobClient = this.containerClient.getBlockBlobClient(mainBlobName);
     
-    const uploadBlobResponse = await blockBlobClient.uploadFile(dbPath, {
+    console.log('   📦 Uploading symbols database...');
+    const mainUploadResponse = await mainBlockBlobClient.uploadFile(dbPath, {
       blobHTTPHeaders: {
         blobContentType: 'application/x-sqlite3'
       },
       metadata: {
         uploadDate: new Date().toISOString(),
-        version: '1.0'
+        version: '1.0',
+        type: 'symbols'
       }
     });
     
-    console.log(`✅ Database uploaded successfully`);
-    console.log(`   Request ID: ${uploadBlobResponse.requestId}`);
-    console.log(`   Blob URL: ${blockBlobClient.url}`);
+    console.log(`   ✅ Symbols database uploaded`);
+    console.log(`      Request ID: ${mainUploadResponse.requestId}`);
+    
+    // Upload labels database (if exists)
+    const labelsDbPath = dbPath.replace('.db', '-labels.db');
+    if (await fs.access(labelsDbPath).then(() => true).catch(() => false)) {
+      const labelsBlobName = 'database/xpp-metadata-labels.db';
+      const labelsBlockBlobClient = this.containerClient.getBlockBlobClient(labelsBlobName);
+      
+      console.log('   📦 Uploading labels database...');
+      const labelsUploadResponse = await labelsBlockBlobClient.uploadFile(labelsDbPath, {
+        blobHTTPHeaders: {
+          blobContentType: 'application/x-sqlite3'
+        },
+        metadata: {
+          uploadDate: new Date().toISOString(),
+          version: '1.0',
+          type: 'labels'
+        }
+      });
+      
+      console.log(`   ✅ Labels database uploaded`);
+      console.log(`      Request ID: ${labelsUploadResponse.requestId}`);
+    } else {
+      console.log('   ⚠️  Labels database not found, skipping');
+    }
+    
+    console.log('\n✅ Database upload complete!');
   }
 
   /**
    * Download compiled database from blob storage
    */
   async downloadDatabase(localDbPath: string): Promise<void> {
-    console.log('\n📥 Downloading compiled database from Azure Blob Storage');
+    console.log('\n📥 Downloading compiled databases from Azure Blob Storage');
     
-    const blobName = 'database/xpp-metadata.db';
-    const blobClient = this.containerClient.getBlobClient(blobName);
+    // Download main symbols database
+    const mainBlobName = 'database/xpp-metadata.db';
+    const mainBlobClient = this.containerClient.getBlobClient(mainBlobName);
     
     // Ensure directory exists
     await fs.mkdir(path.dirname(localDbPath), { recursive: true });
     
-    await blobClient.downloadToFile(localDbPath);
+    console.log('   📦 Downloading symbols database...');
+    await mainBlobClient.downloadToFile(localDbPath);
+    console.log(`   ✅ Symbols database downloaded`);
+    console.log(`      Local path: ${localDbPath}`);
     
-    console.log('✅ Database downloaded successfully');
-    console.log(`   Local path: ${localDbPath}`);
+    // Download labels database (if exists)
+    const labelsBlobName = 'database/xpp-metadata-labels.db';
+    const labelsBlobClient = this.containerClient.getBlobClient(labelsBlobName);
+    const labelsDbPath = localDbPath.replace('.db', '-labels.db');
+    
+    try {
+      console.log('   📦 Downloading labels database...');
+      await labelsBlobClient.downloadToFile(labelsDbPath);
+      console.log(`   ✅ Labels database downloaded`);
+      console.log(`      Local path: ${labelsDbPath}`);
+    } catch (error: any) {
+      if (error.statusCode === 404) {
+        console.log('   ⚠️  Labels database not found in blob storage (might be old format)');
+      } else {
+        throw error;
+      }
+    }
+    
+    console.log('\n✅ Database download complete!');
   }
 
   /**

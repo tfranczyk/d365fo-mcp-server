@@ -59,7 +59,8 @@ xpp-metadata/
 │       ├── YourModel2/
 │       └── ...
 └── database/
-    └── xpp-metadata.db     # Compiled SQLite database
+    ├── xpp-metadata.db     # Compiled symbols database (~1-1.5 GB)
+    └── xpp-metadata-labels.db  # Compiled labels database (~500 MB for 4 languages)
 ```
 
 ### Pipeline Flow
@@ -459,7 +460,7 @@ env:
 - ✅ Review execution times for anomalies
 
 #### Monthly
-- ✅ Verify database size (~2GB expected)
+- ✅ Verify database size (~2 GB total expected: 1-1.5 GB symbols + 500 MB labels)
 - ✅ Check blob storage usage
 - ✅ Review App Service metrics
 
@@ -515,7 +516,7 @@ env:
 1. Review CUSTOM_MODELS variable
 2. Remove unnecessary models
 3. Re-run extraction
-4. Expected size: ~2GB
+4. Expected size: ~2 GB total (1-1.5 GB symbols + 500 MB labels)
 ```
 
 ---

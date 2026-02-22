@@ -44,6 +44,7 @@ console.error = (...args: any[]) => {
 
 const PORT = parseInt(process.env.PORT || '8080');
 const DB_PATH = process.env.DB_PATH || './data/xpp-metadata.db';
+const LABELS_DB_PATH = process.env.LABELS_DB_PATH || './data/xpp-metadata-labels.db';
 const METADATA_PATH = process.env.METADATA_PATH || './metadata';
 
 // Detect if running in stdio mode (launched by MCP client)
@@ -121,13 +122,14 @@ async function initializeServices() {
 
     // Initialize symbol index and parser
     console.log(`📚 Loading metadata from: ${DB_PATH}`);
+    console.log(`📚 Labels database: ${LABELS_DB_PATH}`);
     serverState.statusMessage = 'Loading metadata database...';
     
     let symbolIndex: XppSymbolIndex;
     let symbolCount = 0;
     
     try {
-      symbolIndex = new XppSymbolIndex(DB_PATH);
+      symbolIndex = new XppSymbolIndex(DB_PATH, LABELS_DB_PATH);
       symbolCount = symbolIndex.getSymbolCount();
     } catch (error: any) {
       console.error('❌ Failed to open database:', error);
@@ -143,7 +145,7 @@ async function initializeServices() {
         }
         
         // Try again with fresh database
-        symbolIndex = new XppSymbolIndex(DB_PATH);
+        symbolIndex = new XppSymbolIndex(DB_PATH, LABELS_DB_PATH);
         symbolCount = symbolIndex.getSymbolCount();
       } else {
         throw error;

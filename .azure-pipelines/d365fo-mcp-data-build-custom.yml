@@ -48,6 +48,8 @@ variables:
     value: './metadata'
   - name: DB_PATH
     value: './database/xpp-metadata.db'
+  - name: LABELS_DB_PATH
+    value: './database/xpp-metadata-labels.db'
   - name: PACKAGES_PATH
     value: '$(Build.SourcesDirectory)/ASL/src/d365fo/metadata'
   - name: MCP_SERVER_PATH
@@ -154,6 +156,7 @@ stages:
             env:
               METADATA_PATH: $(METADATA_PATH)
               DB_PATH: $(DB_PATH)
+              LABELS_DB_PATH: $(LABELS_DB_PATH)
               EXTRACT_MODE: '${{ parameters.extractionMode }}'
               COMPUTE_STATS: 'false'  # Disable usage statistics computation (saves 1-2 minutes)
               ENABLE_SEARCH_SUGGESTIONS: 'false'  # Disable suggestions in CI/CD to reduce memory usage

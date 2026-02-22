@@ -18,6 +18,7 @@ import { indexAllLabels } from '../src/metadata/labelParser.js';
 
 const INPUT_PATH = process.env.METADATA_PATH || './extracted-metadata';
 const OUTPUT_DB = process.env.DB_PATH || './data/xpp-metadata.db';
+const OUTPUT_LABELS_DB = process.env.LABELS_DB_PATH || './data/xpp-metadata-labels.db';
 const EXTRACT_MODE = process.env.EXTRACT_MODE || 'all';
 const CUSTOM_MODELS = getCustomModels();
 const FORCE_VACUUM = process.env.VACUUM === 'true';
@@ -33,18 +34,24 @@ async function buildDatabase() {
   console.log('🔨 Building X++ Metadata Database');
   console.log(`📂 Input: ${INPUT_PATH}`);
   console.log(`💾 Output: ${OUTPUT_DB}`);
+  console.log(`💾 Labels DB: ${OUTPUT_LABELS_DB}`);
   console.log(`⚙️  Extract Mode: ${EXTRACT_MODE}`);
   console.log(`🧹 VACUUM: ${EXTRACT_MODE === 'all' || FORCE_VACUUM ? 'Enabled' : 'Disabled (incremental build)'}`);
   console.log('');
 
-  // Create symbol index
-  const symbolIndex = new XppSymbolIndex(OUTPUT_DB);
+  // Create symbol index with separate labels database
+  const symbolIndex = new XppSymbolIndex(OUTPUT_DB, OUTPUT_LABELS_DB);
 
   // Optimize for bulk loading: use MEMORY journal during build
   console.log('⚡ Setting bulk load optimizations (MEMORY journal)...');
   symbolIndex.db.pragma('journal_mode = MEMORY'); // Fastest for bulk inserts
   symbolIndex.db.pragma('synchronous = OFF');     // Maximum speed (safe for build process)
   symbolIndex.db.pragma('locking_mode = EXCLUSIVE'); // No concurrent access needed during build
+  
+  // Same optimizations for labels database
+  symbolIndex.labelsDb.pragma('journal_mode = MEMORY');
+  symbolIndex.labelsDb.pragma('synchronous = OFF');
+  symbolIndex.labelsDb.pragma('locking_mode = EXCLUSIVE');
 
   // Determine which models to rebuild based on EXTRACT_MODE
   let modelsToRebuild: string[] = [];
@@ -198,11 +205,15 @@ async function buildDatabase() {
     console.log('   ℹ️  Upload this database as a pipeline artifact, then run: npm run build-fts');
   } else {
     // Convert to WAL mode for production use (better concurrency)
-    console.log('\n🔄 Converting database to WAL mode for production...');
+    console.log('\n🔄 Converting databases to WAL mode for production...');
     symbolIndex.db.pragma('locking_mode = NORMAL');  // Re-enable shared access
     symbolIndex.db.pragma('journal_mode = WAL');     // Enable WAL for runtime
     symbolIndex.db.pragma('synchronous = NORMAL');   // Balance speed/safety
-    console.log('✅ Database converted to WAL mode');
+    
+    symbolIndex.labelsDb.pragma('locking_mode = NORMAL');
+    symbolIndex.labelsDb.pragma('journal_mode = WAL');
+    symbolIndex.labelsDb.pragma('synchronous = NORMAL');
+    console.log('✅ Databases converted to WAL mode');
 
     // ANALYZE + optimize: persist query-planner stats into the DB so the production
     // server can open it with zero warmup cost (skipped when SKIP_FTS=true because

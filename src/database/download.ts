@@ -49,6 +49,7 @@ export async function downloadDatabaseFromBlob(options?: DownloadOptions): Promi
   const containerName = options?.containerName || process.env.BLOB_CONTAINER_NAME || 'xpp-metadata';
   const blobName = options?.blobName || process.env.BLOB_DATABASE_NAME || 'databases/xpp-metadata-latest.db';
   const localPath = options?.localPath || process.env.DB_PATH || './data/xpp-metadata.db';
+  const labelsDbPath = localPath.replace('.db', '-labels.db');
   const maxRetries = options?.maxRetries || 3;
   const timeoutMs = options?.timeoutMs || 300000; // 5 minutes default
 
@@ -56,10 +57,11 @@ export async function downloadDatabaseFromBlob(options?: DownloadOptions): Promi
     throw new Error('Azure Storage connection string not configured');
   }
 
-  console.log(`📥 Downloading database from blob storage...`);
+  console.log(`📥 Downloading databases from blob storage...`);
   console.log(`   Container: ${containerName}`);
-  console.log(`   Blob: ${blobName}`);
-  console.log(`   Local path: ${localPath}`);
+  console.log(`   Symbols blob: ${blobName}`);
+  console.log(`   Symbols path: ${localPath}`);
+  console.log(`   Labels path: ${labelsDbPath}`);
   console.log(`   Timeout: ${timeoutMs / 1000}s`);
 
   // Ensure directory exists
@@ -112,19 +114,62 @@ export async function downloadDatabaseFromBlob(options?: DownloadOptions): Promi
       console.log(`   Downloaded in ${duration}s`);
 
       // Validate database integrity
-      console.log(`   Validating database integrity...`);
+      console.log(`   Validating symbols database integrity...`);
       const isValid = await validateDatabase(tmpPath);
       
       if (!isValid) {
-        throw new Error('Downloaded database is corrupted (failed integrity check)');
+        throw new Error('Downloaded symbols database is corrupted (failed integrity check)');
       }
       
-      console.log(`   ✅ Database validation passed`);
+      console.log(`   ✅ Symbols database validation passed`);
 
       // Atomic move: rename temp to final
       await fs.rename(tmpPath, localPath);
       
-      console.log(`✅ Database downloaded successfully`);
+      // Download labels database (separate file)
+      const labelsBlobName = blobName.replace('.db', '-labels.db').replace('xpp-metadata-latest', 'xpp-metadata-labels-latest');
+      const labelsBlobClient = containerClient.getBlobClient(labelsBlobName);
+      const labelsTmpPath = `${labelsDbPath}.tmp`;
+
+      console.log(`   📥 Downloading labels database...`);
+      try {
+        const labelsExists = await labelsBlobClient.exists();
+        if (labelsExists) {
+          const labelsProperties = await labelsBlobClient.getProperties();
+          const labelsSizeInMB = ((labelsProperties.contentLength || 0) / (1024 * 1024)).toFixed(2);
+          console.log(`   Labels size: ${labelsSizeInMB} MB`);
+
+          const labelsDownloadPromise = labelsBlobClient.downloadToFile(labelsTmpPath);
+          const labelsTimeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Labels download timeout')), timeoutMs)
+          );
+
+          await Promise.race([labelsDownloadPromise, labelsTimeoutPromise]);
+
+          // Validate labels database
+          console.log(`   Validating labels database integrity...`);
+          const labelsIsValid = await validateDatabase(labelsTmpPath);
+
+          if (!labelsIsValid) {
+            throw new Error('Downloaded labels database is corrupted');
+          }
+
+          console.log(`   ✅ Labels database validation passed`);
+
+          // Move to final location
+          await fs.rename(labelsTmpPath, labelsDbPath);
+          console.log(`   ✅ Labels database downloaded`);
+        } else {
+          console.log(`   ⚠️  Labels database not found (may be old single-DB format)`);
+        }
+      } catch (labelsError: any) {
+        console.warn(`   ⚠️  Failed to download labels database: ${labelsError.message}`);
+        console.warn(`   Continuing with symbols database only (labels will not be available)`);
+        // Clean up temp file if exists
+        try { await fs.unlink(labelsTmpPath); } catch { }
+      }
+      
+      console.log(`✅ Database download complete`);
       return localPath;
       
     } catch (error) {
