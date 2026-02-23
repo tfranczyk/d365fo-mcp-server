@@ -68,6 +68,9 @@ describe('tableInfoTool', () => {
         setClassInfo: vi.fn(async () => {}),
         generateTableKey: vi.fn((tableName: string) => `table:${tableName}`),
       } as any,
+      workspaceScanner: {} as any,
+      hybridSearch: {} as any,
+      termRelationshipGraph: {} as any,
     };
   });
 
