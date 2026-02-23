@@ -60,11 +60,74 @@ interface ExtractionStats {
   forms: number;
   queries: number;
   views: number;
+  dataEntities: number;
   enums: number;
+  edts: number;
   errors: number;
 }
 
+interface ModelWorkItem {
+  packageName: string;
+  modelName: string;
+  modelPath: string;
+  expectedXmlFiles: number;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${formatCount(ms)}ms`;
+  if (ms < 60000) return `${formatDecimal(ms / 1000)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = (ms % 60000) / 1000;
+  return `${formatCount(minutes)}m ${formatDecimal(seconds)}s`;
+}
+
+function formatCount(value: number): string {
+  return Math.round(value).toLocaleString('en-US');
+}
+
+function formatDecimal(value: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatPercent(current: number, total: number): string {
+  if (total <= 0) return '0.00%';
+  return `${formatDecimal((current / total) * 100)}%`;
+}
+
+async function countXmlFilesInDirectory(dirPath: string): Promise<number> {
+  if (!fsSync.existsSync(dirPath)) {
+    return 0;
+  }
+
+  const files = await fs.readdir(dirPath);
+  return files.filter(file => file.endsWith('.xml')).length;
+}
+
+async function countModelXmlFiles(modelPath: string): Promise<number> {
+  let total = 0;
+  const sourceDirs = [
+    'AxClass', 'axclass',
+    'AxTable', 'axtable',
+    'AxForm', 'axform',
+    'AxQuery', 'axquery',
+    'AxView', 'axview',
+    'AxDataEntityView', 'axdataentityview',
+    'AxEnum', 'axenum',
+    'AxEdt', 'axedt',
+  ];
+
+  for (const sourceDir of sourceDirs) {
+    total += await countXmlFilesInDirectory(path.join(modelPath, sourceDir));
+  }
+
+  return total;
+}
+
 async function extractMetadata() {
+  const extractionStart = Date.now();
   console.log('🔍 X++ Metadata Extraction');
   console.log(`📂 Source: ${PACKAGES_PATH}`);
   console.log(`📁 Output: ${OUTPUT_PATH}`);
@@ -104,7 +167,9 @@ async function extractMetadata() {
     forms: 0,
     queries: 0,
     views: 0,
+    dataEntities: 0,
     enums: 0,
+    edts: 0,
     errors: 0,
   };
 
@@ -162,24 +227,24 @@ async function extractMetadata() {
     if (FILTER_MODE === 'custom-only') {
       // Keep only custom models (defined in CUSTOM_MODELS or with EXTENSION_PREFIX)
       packagesToProcess = allPackageNames.filter(pkg => isCustomModel(pkg));
-      console.log(`📦 Found ${packagesToProcess.length} custom packages to process (${allPackageNames.length - packagesToProcess.length} standard models excluded)`);
+      console.log(`📦 Found ${formatCount(packagesToProcess.length)} custom packages to process (${formatCount(allPackageNames.length - packagesToProcess.length)} standard models excluded)`);
     } else if (FILTER_MODE === 'standard-only') {
       // Keep only standard models (exclude custom)
       packagesToProcess = allPackageNames.filter(pkg => !isCustomModel(pkg));
-      console.log(`📦 Found ${packagesToProcess.length} standard packages to process (${allPackageNames.length - packagesToProcess.length} custom models excluded)`);
+      console.log(`📦 Found ${formatCount(packagesToProcess.length)} standard packages to process (${formatCount(allPackageNames.length - packagesToProcess.length)} custom models excluded)`);
     } else {
       // Process all packages
       packagesToProcess = allPackageNames;
-      console.log(`📦 Found ${packagesToProcess.length} packages to process`);
+      console.log(`📦 Found ${formatCount(packagesToProcess.length)} packages to process`);
     }
   }
 
-  // Process each package/model
-  for (const packageName of packagesToProcess) {
-    console.log(`\n📦 Processing package: ${packageName}`);
+  const modelWorkItems: ModelWorkItem[] = [];
 
+  // Build model worklist first to enable accurate progress percentages
+  for (const packageName of packagesToProcess) {
     const packagePath = path.join(PACKAGES_PATH, packageName);
-    
+
     try {
       await fs.access(packagePath);
     } catch {
@@ -209,7 +274,7 @@ async function extractMetadata() {
       }
 
       const modelPath = path.join(packagePath, modelName);
-      
+
       // Check if this directory contains X++ metadata (has AxClass, AxTable, etc.)
       // Support both uppercase and lowercase directory names (Linux case-sensitivity)
       const hasAxClass = await fs.access(path.join(modelPath, 'AxClass')).then(() => true)
@@ -218,44 +283,90 @@ async function extractMetadata() {
         .catch(() => fs.access(path.join(modelPath, 'axtable')).then(() => true).catch(() => false));
       const hasAxEnum = await fs.access(path.join(modelPath, 'AxEnum')).then(() => true)
         .catch(() => fs.access(path.join(modelPath, 'axenum')).then(() => true).catch(() => false));
+      const hasAxEdt = await fs.access(path.join(modelPath, 'AxEdt')).then(() => true)
+        .catch(() => fs.access(path.join(modelPath, 'axedt')).then(() => true).catch(() => false));
+      const hasAxView = await fs.access(path.join(modelPath, 'AxView')).then(() => true)
+        .catch(() => fs.access(path.join(modelPath, 'axview')).then(() => true).catch(() => false));
+      const hasAxDataEntityView = await fs.access(path.join(modelPath, 'AxDataEntityView')).then(() => true)
+        .catch(() => fs.access(path.join(modelPath, 'axdataentityview')).then(() => true).catch(() => false));
 
-      if (!hasAxClass && !hasAxTable && !hasAxEnum) {
+      if (!hasAxClass && !hasAxTable && !hasAxEnum && !hasAxEdt && !hasAxView && !hasAxDataEntityView) {
         // Skip directories that don't contain X++ metadata
         continue;
       }
 
-      console.log(`   📂 Model: ${modelName}`);
-
-      // Extract classes
-      await extractClasses(parser, modelPath, modelName, stats);
-
-      // Extract tables
-      await extractTables(parser, modelPath, modelName, stats);
-
-      // Extract forms
-      await extractForms(parser, modelPath, modelName, stats);
-
-      // Extract queries
-      await extractQueries(parser, modelPath, modelName, stats);
-
-      // Extract views
-      await extractViews(parser, modelPath, modelName, stats);
-
-      // Extract enums
-      await extractEnums(parser, modelPath, modelName, stats);
+      const expectedXmlFiles = await countModelXmlFiles(modelPath);
+      modelWorkItems.push({ packageName, modelName, modelPath, expectedXmlFiles });
     }
   }
 
+  const totalModels = modelWorkItems.length;
+  const totalExpectedFiles = modelWorkItems.reduce((sum, item) => sum + item.expectedXmlFiles, 0);
+  console.log(`📍 Planned work: ${formatCount(totalModels)} models, ${formatCount(totalExpectedFiles)} XML files`);
+
+  // Process each model with progress tracking
+  let currentPackage = '';
+  let processedModels = 0;
+  let cumulativeModelDuration = 0;
+
+  for (const modelItem of modelWorkItems) {
+    if (currentPackage !== modelItem.packageName) {
+      currentPackage = modelItem.packageName;
+      console.log(`\n📦 Processing package: ${currentPackage} | Model progress: ${formatPercent(processedModels, totalModels)} (${formatCount(processedModels)}/${formatCount(totalModels)})`);
+    }
+
+    const modelStart = Date.now();
+    console.log(`   📂 Model: ${modelItem.modelName} (${formatCount(modelItem.expectedXmlFiles)} XML files)`);
+
+    // Extract classes
+    await extractClasses(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract tables
+    await extractTables(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract forms
+    await extractForms(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract queries
+    await extractQueries(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract views
+    await extractViews(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract enums
+    await extractEnums(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    // Extract EDTs
+    await extractEdts(parser, modelItem.modelPath, modelItem.modelName, stats);
+
+    const modelDuration = Date.now() - modelStart;
+    cumulativeModelDuration += modelDuration;
+    processedModels++;
+
+    const elapsed = Date.now() - extractionStart;
+    const avgModelDuration = processedModels > 0 ? cumulativeModelDuration / processedModels : 0;
+    const avgFileDuration = stats.totalFiles > 0 ? elapsed / stats.totalFiles : 0;
+    console.log(
+      `   ⏱️  Model done in ${formatDuration(modelDuration)} | Progress: ${formatPercent(processedModels, totalModels)} (${formatCount(processedModels)}/${formatCount(totalModels)} models), ${formatPercent(stats.totalFiles, totalExpectedFiles)} (${formatCount(stats.totalFiles)}/${formatCount(totalExpectedFiles)} files) | Avg: ${formatDuration(avgModelDuration)}/model, ${formatDuration(avgFileDuration)}/file`
+    );
+  }
+
   console.log('\n✅ Extraction complete!');
+  const totalDuration = Date.now() - extractionStart;
+  const averagePerFile = stats.totalFiles > 0 ? totalDuration / stats.totalFiles : 0;
+  const averagePerModel = processedModels > 0 ? cumulativeModelDuration / processedModels : 0;
+  console.log(`⏱️  Duration: ${formatDuration(totalDuration)} (avg ${formatDuration(averagePerModel)}/model, ${formatDuration(averagePerFile)}/file)`);
   console.log(`📊 Statistics:`);
-  console.log(`   Total files: ${stats.totalFiles}`);
-  console.log(`   Classes: ${stats.classes}`);
-  console.log(`   Tables: ${stats.tables}`);
-  console.log(`   Forms: ${stats.forms}`);
-  console.log(`   Queries: ${stats.queries}`);
-  console.log(`   Views: ${stats.views}`);
-  console.log(`   Enums: ${stats.enums}`);
-  console.log(`   Errors: ${stats.errors}`);
+  console.log(`   Total files: ${formatCount(stats.totalFiles)}`);
+  console.log(`   Classes: ${formatCount(stats.classes)}`);
+  console.log(`   Tables: ${formatCount(stats.tables)}`);
+  console.log(`   Forms: ${formatCount(stats.forms)}`);
+  console.log(`   Queries: ${formatCount(stats.queries)}`);
+  console.log(`   Views: ${formatCount(stats.views)}`);
+  console.log(`   Data entities: ${formatCount(stats.dataEntities)}`);
+  console.log(`   Enums: ${formatCount(stats.enums)}`);
+  console.log(`   EDTs: ${formatCount(stats.edts)}`);
+  console.log(`   Errors: ${formatCount(stats.errors)}`);
 }
 
 async function extractClasses(
@@ -282,7 +393,7 @@ async function extractClasses(
   const files = await fs.readdir(classesPath);
   const xmlFiles = files.filter(f => f.endsWith('.xml'));
 
-  console.log(`   Classes: ${xmlFiles.length} files`);
+  console.log(`   Classes: ${formatCount(xmlFiles.length)} files`);
 
   for (const file of xmlFiles) {
     const filePath = path.join(classesPath, file);
@@ -309,6 +420,7 @@ async function extractClasses(
       stats.errors++;
     }
   }
+
 }
 
 async function extractTables(
@@ -335,7 +447,7 @@ async function extractTables(
   const files = await fs.readdir(tablesPath);
   const xmlFiles = files.filter(f => f.endsWith('.xml'));
 
-  console.log(`   Tables: ${xmlFiles.length} files`);
+  console.log(`   Tables: ${formatCount(xmlFiles.length)} files`);
 
   for (const file of xmlFiles) {
     const filePath = path.join(tablesPath, file);
@@ -362,6 +474,7 @@ async function extractTables(
       stats.errors++;
     }
   }
+
 }
 
 async function extractForms(
@@ -388,7 +501,7 @@ async function extractForms(
   const files = await fs.readdir(formsPath);
   const xmlFiles = files.filter(f => f.endsWith('.xml'));
 
-  console.log(`   Forms: ${xmlFiles.length} files`);
+  console.log(`   Forms: ${formatCount(xmlFiles.length)} files`);
 
   for (const file of xmlFiles) {
     const filePath = path.join(formsPath, file);
@@ -415,6 +528,7 @@ async function extractForms(
       stats.errors++;
     }
   }
+
 }
 
 async function extractQueries(
@@ -441,7 +555,7 @@ async function extractQueries(
   const files = await fs.readdir(queriesPath);
   const xmlFiles = files.filter(f => f.endsWith('.xml'));
 
-  console.log(`   Queries: ${xmlFiles.length} files`);
+  console.log(`   Queries: ${formatCount(xmlFiles.length)} files`);
 
   for (const file of xmlFiles) {
     const filePath = path.join(queriesPath, file);
@@ -468,6 +582,7 @@ async function extractQueries(
       stats.errors++;
     }
   }
+
 }
 
 async function extractViews(
@@ -476,51 +591,57 @@ async function extractViews(
   modelName: string,
   stats: ExtractionStats
 ) {
-  // Support both uppercase and lowercase directory names (Linux case-sensitivity)
-  let viewsPath = path.join(modelPath, 'AxView');
-  
-  try {
-    await fs.access(viewsPath);
-  } catch {
-    // Try lowercase
-    viewsPath = path.join(modelPath, 'axview');
-    try {
-      await fs.access(viewsPath);
-    } catch {
-      return; // No views in this model
+  const sourceDirs: string[] = [];
+
+  for (const dirName of ['AxView', 'axview', 'AxDataEntityView', 'axdataentityview']) {
+    const candidate = path.join(modelPath, dirName);
+    if (fsSync.existsSync(candidate)) {
+      sourceDirs.push(candidate);
     }
   }
 
-  const files = await fs.readdir(viewsPath);
-  const xmlFiles = files.filter(f => f.endsWith('.xml'));
+  if (sourceDirs.length === 0) {
+    return;
+  }
 
-  console.log(`   Views: ${xmlFiles.length} files`);
+  let totalXmlFiles = 0;
 
-  for (const file of xmlFiles) {
-    const filePath = path.join(viewsPath, file);
-    stats.totalFiles++;
+  for (const sourceDir of sourceDirs) {
+    const files = await fs.readdir(sourceDir);
+    const xmlFiles = files.filter(f => f.endsWith('.xml'));
+    totalXmlFiles += xmlFiles.length;
 
-    try {
-      // Basic view parsing (name extraction)
-      const viewName = path.basename(file, '.xml');
-      const viewInfo = {
-        name: viewName,
-        model: modelName,
-        sourcePath: filePath,
-        type: 'view'
-      };
-      
-      const outputDir = path.join(OUTPUT_PATH, modelName, 'views');
-      await fs.mkdir(outputDir, { recursive: true });
-      const outputFile = path.join(outputDir, `${viewName}.json`);
-      await fs.writeFile(outputFile, JSON.stringify(viewInfo, null, 2));
+    for (const file of xmlFiles) {
+      const filePath = path.join(sourceDir, file);
+      stats.totalFiles++;
 
-      stats.views++;
-    } catch (error) {
-      console.error(`   ❌ Error parsing ${file}:`, error);
-      stats.errors++;
+      try {
+        const viewInfo = await parser.parseViewFile(filePath, modelName);
+
+        if (!viewInfo.success || !viewInfo.data) {
+          console.error(`   ⚠️  Failed to parse ${file}: ${viewInfo.error || 'Unknown error'}`);
+          stats.errors++;
+          continue;
+        }
+
+        const outputDir = path.join(OUTPUT_PATH, modelName, 'views');
+        await fs.mkdir(outputDir, { recursive: true });
+        const outputFile = path.join(outputDir, `${viewInfo.data.name}.json`);
+        await fs.writeFile(outputFile, JSON.stringify(viewInfo.data, null, 2));
+
+        if (viewInfo.data.type === 'data-entity') {
+          stats.dataEntities++;
+        } else {
+          stats.views++;
+        }
+      } catch (error) {
+        console.error(`   ❌ Error parsing ${file}:`, error);
+        stats.errors++;
+      }
     }
   }
+
+  console.log(`   Views/Data entities: ${formatCount(totalXmlFiles)} files`);
 }
 
 async function extractEnums(
@@ -547,7 +668,7 @@ async function extractEnums(
   const files = await fs.readdir(enumsPath);
   const xmlFiles = files.filter(f => f.endsWith('.xml'));
 
-  console.log(`   Enums: ${xmlFiles.length} files`);
+  console.log(`   Enums: ${formatCount(xmlFiles.length)} files`);
 
   for (const file of xmlFiles) {
     const filePath = path.join(enumsPath, file);
@@ -567,6 +688,55 @@ async function extractEnums(
       stats.errors++;
     }
   }
+
+}
+
+async function extractEdts(
+  parser: XppMetadataParser,
+  modelPath: string,
+  modelName: string,
+  stats: ExtractionStats
+) {
+  // Support both uppercase and lowercase directory names (Linux case-sensitivity)
+  let edtsPath = path.join(modelPath, 'AxEdt');
+
+  try {
+    await fs.access(edtsPath);
+  } catch {
+    // Try lowercase
+    edtsPath = path.join(modelPath, 'axedt');
+    try {
+      await fs.access(edtsPath);
+    } catch {
+      return; // No EDTs in this model
+    }
+  }
+
+  const files = await fs.readdir(edtsPath);
+  const xmlFiles = files.filter(f => f.endsWith('.xml'));
+
+  console.log(`   EDTs: ${formatCount(xmlFiles.length)} files`);
+
+  for (const file of xmlFiles) {
+    const filePath = path.join(edtsPath, file);
+    stats.totalFiles++;
+
+    try {
+      // Store raw XML (same approach as enums)
+      const content = await fs.readFile(filePath, 'utf-8');
+      const edtName = path.basename(file, '.xml');
+      const outputDir = path.join(OUTPUT_PATH, modelName, 'edts');
+      await fs.mkdir(outputDir, { recursive: true });
+      const outputFile = path.join(outputDir, `${edtName}.json`);
+      await fs.writeFile(outputFile, JSON.stringify({ name: edtName, sourcePath: filePath, raw: content }, null, 2));
+
+      stats.edts++;
+    } catch (error) {
+      console.error(`   ❌ Error parsing ${file}:`, error);
+      stats.errors++;
+    }
+  }
+
 }
 
 // Run extraction

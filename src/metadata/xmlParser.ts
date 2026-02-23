@@ -9,11 +9,15 @@ import type {
   XppParseResult,
   XppClassInfo,
   XppTableInfo,
+  XppViewInfo,
   XppMethodInfo,
   XppParameterInfo,
   XppFieldInfo,
   XppIndexInfo,
   XppRelationInfo,
+  XppViewFieldInfo,
+  XppViewRelationFieldInfo,
+  XppViewRelationInfo,
 } from './types.js';
 import { EnhancedXppParser } from './enhancedParser.js';
 
@@ -135,6 +139,46 @@ export class XppMetadataParser {
     }
   }
 
+  /**
+   * Parse an X++ view/data entity file (AxView or AxDataEntityView XML)
+   */
+  async parseViewFile(filePath: string, model?: string): Promise<XppParseResult<XppViewInfo>> {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const parsed = await this.parser.parseStringPromise(content);
+
+      const axView = parsed.AxDataEntityView || parsed.AxView;
+      if (!axView) {
+        return { success: false, error: 'Not a valid AxView/AxDataEntityView file' };
+      }
+
+      const isDataEntity = !!parsed.AxDataEntityView;
+      const viewName = axView.Name || 'UnknownView';
+
+      const viewInfo: XppViewInfo = {
+        name: viewName,
+        model: model || 'Unknown',
+        sourcePath: filePath,
+        type: isDataEntity ? 'data-entity' : 'view',
+        label: axView.Label || undefined,
+        isPublic: axView.IsPublic === 'Yes' || axView.IsPublic === 'true',
+        isReadOnly: axView.IsReadOnly === 'Yes' || axView.IsReadOnly === 'true',
+        primaryKey: axView.PrimaryKey || undefined,
+        primaryKeyFields: this.parseViewPrimaryKeyFields(axView.Keys, axView.PrimaryKey),
+        fields: this.parseViewFields(axView.Fields),
+        relations: this.parseViewRelations(axView.Relations),
+        methods: this.parseMethods(axView.SourceCode?.Methods?.Method, viewName),
+      };
+
+      return { success: true, data: viewInfo };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   private parseImplements(implementsStr?: string | any): string[] {
     if (!implementsStr) return [];
     if (typeof implementsStr !== 'string') return [];
@@ -212,13 +256,41 @@ export class XppMetadataParser {
 
   private parseIndexFields(fieldsStr?: string | any): string[] {
     if (!fieldsStr) return [];
+
+    if (fieldsStr.AxTableIndexField) {
+      const indexFields = Array.isArray(fieldsStr.AxTableIndexField)
+        ? fieldsStr.AxTableIndexField
+        : [fieldsStr.AxTableIndexField];
+
+      return indexFields
+        .map((field: any) => field?.DataField || field?.Name || '')
+        .filter((field: string) => !!field);
+    }
+
     if (typeof fieldsStr !== 'string') {
       // Handle case where xml2js returns an object or array
       if (Array.isArray(fieldsStr)) {
-        return fieldsStr.map(f => String(f)).filter(Boolean);
+        return fieldsStr
+          .map((field: any) => {
+            if (typeof field === 'string') {
+              return field;
+            }
+
+            if (field?.DataField) {
+              return field.DataField;
+            }
+
+            if (field?.Name) {
+              return field.Name;
+            }
+
+            return '';
+          })
+          .filter(Boolean);
       }
       return [];
     }
+
     return fieldsStr.split(',').map(f => f.trim()).filter(Boolean);
   }
 
@@ -236,11 +308,99 @@ export class XppMetadataParser {
   private parseConstraints(constraintsData: any): any[] {
     if (!constraintsData) return [];
 
-    const constraints = Array.isArray(constraintsData) ? constraintsData : [constraintsData];
-    return constraints.map(c => ({
-      field: c.Field || '',
-      relatedField: c.RelatedField || '',
+    const constraintNodes = constraintsData.AxTableRelationConstraint
+      ? (Array.isArray(constraintsData.AxTableRelationConstraint)
+        ? constraintsData.AxTableRelationConstraint
+        : [constraintsData.AxTableRelationConstraint])
+      : (Array.isArray(constraintsData) ? constraintsData : [constraintsData]);
+
+    return constraintNodes.map((constraint: any) => ({
+      field: constraint.Field || '',
+      relatedField: constraint.RelatedField || '',
     }));
+  }
+
+  private parseViewFields(fieldsData: any): XppViewFieldInfo[] {
+    if (!fieldsData) return [];
+
+    const entityFields = this.ensureArray(fieldsData.AxDataEntityViewField);
+    const viewFields = this.ensureArray(fieldsData.AxViewField);
+    const allFields = [...entityFields, ...viewFields];
+
+    return allFields.map((field: any) => ({
+      name: field.Name || 'unknown',
+      dataSource: field.DataSource || undefined,
+      dataField: field.DataField || undefined,
+      dataMethod: field.DataMethod || undefined,
+      labelId: this.extractLabelId(field.Label),
+      isComputed: !!field.DataMethod,
+    }));
+  }
+
+  private parseViewRelations(relationsData: any): XppViewRelationInfo[] {
+    if (!relationsData) return [];
+
+    const entityRelations = this.ensureArray(relationsData.AxDataEntityViewRelation);
+    const viewRelations = this.ensureArray(relationsData.AxViewRelation);
+    const allRelations = [...entityRelations, ...viewRelations];
+
+    return allRelations.map((relation: any) => ({
+      name: relation.Name || 'unknown',
+      relatedTable: relation.RelatedDataEntity || relation.RelatedTable || 'unknown',
+      relationType: relation.RelationType || 'Unknown',
+      cardinality: relation.Cardinality || 'Unknown',
+      fields: this.parseViewRelationFields(relation),
+    }));
+  }
+
+  private parseViewPrimaryKeyFields(keysData: any, primaryKeyName?: string): string[] {
+    if (!keysData) return [];
+
+    const keys = this.ensureArray(keysData.AxDataEntityViewKey);
+    const keyNode = primaryKeyName
+      ? keys.find((key: any) => key.Name === primaryKeyName)
+      : keys[0];
+
+    if (!keyNode || !keyNode.Fields) return [];
+
+    const keyFields = this.ensureArray(keyNode.Fields.AxDataEntityViewKeyField);
+    return keyFields
+      .map((field: any) => field.DataField || field.Name || '')
+      .filter((field: string) => !!field);
+  }
+
+  private parseViewRelationFields(relation: any): XppViewRelationFieldInfo[] {
+    const mappings: XppViewRelationFieldInfo[] = [];
+
+    const relationFields = this.ensureArray(relation?.Fields?.AxDataEntityViewRelationField);
+    for (const field of relationFields) {
+      mappings.push({
+        field: field.DataField || field.Field || field.Name || '',
+        relatedField: field.RelatedDataField || field.RelatedField || '',
+      });
+    }
+
+    const constraints = this.ensureArray(relation?.Constraints?.AxDataEntityViewRelationConstraint);
+    for (const constraint of constraints) {
+      mappings.push({
+        field: constraint.DataField || constraint.Field || '',
+        relatedField: constraint.RelatedDataField || constraint.RelatedField || '',
+      });
+    }
+
+    return mappings.filter(mapping => !!mapping.field || !!mapping.relatedField);
+  }
+
+  private extractLabelId(labelValue?: string): string | undefined {
+    if (!labelValue || typeof labelValue !== 'string') return undefined;
+    const trimmed = labelValue.trim();
+    if (!trimmed.startsWith('@')) return undefined;
+    return trimmed;
+  }
+
+  private ensureArray<T>(value: T | T[] | undefined): T[] {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
   }
 
   /**

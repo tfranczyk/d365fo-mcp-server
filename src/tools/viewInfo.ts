@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { XppServerContext } from '../types/context.js';
 import { promises as fs } from 'fs';
 import { parseStringPromise } from 'xml2js';
-import { buildXmlNotAvailableMessage } from '../utils/metadataResolver.js';
+import { buildXmlNotAvailableMessage, readViewMetadata } from '../utils/metadataResolver.js';
 
 const GetViewInfoArgsSchema = z.object({
   viewName: z.string().describe('Name of the view or data entity'),
@@ -26,7 +26,13 @@ interface ViewField {
   dataSource?: string;
   dataField?: string;
   dataMethod?: string;
+  labelId?: string;
   isComputed: boolean;
+}
+
+interface ViewRelationField {
+  field: string;
+  relatedField: string;
 }
 
 interface ViewRelation {
@@ -34,14 +40,17 @@ interface ViewRelation {
   relatedTable: string;
   relationType: string;
   cardinality: string;
+  fields: ViewRelationField[];
 }
 
 interface ViewInfo {
   name: string;
   model: string;
+  label?: string;
   isPublic: boolean;
   isReadOnly: boolean;
   primaryKey?: string;
+  primaryKeyFields: string[];
   fields: ViewField[];
   relations: ViewRelation[];
   methods: string[];
@@ -114,6 +123,42 @@ export async function getViewInfoTool(request: CallToolRequest, context: XppServ
     try {
       xmlContent = await fs.readFile(viewRow.file_path, 'utf-8');
     } catch {
+      if (viewRow.model && viewRow.model !== 'Workspace') {
+        const extracted = await readViewMetadata(viewRow.model, viewName);
+        if (extracted) {
+          const fallbackInfo: ViewInfo = {
+            name: extracted.name,
+            model: extracted.model,
+            label: extracted.label,
+            isPublic: !!extracted.isPublic,
+            isReadOnly: !!extracted.isReadOnly,
+            primaryKey: extracted.primaryKey,
+            primaryKeyFields: (extracted.primaryKeyFields || []).filter((field: any) => typeof field === 'string'),
+            fields: (extracted.fields || []).map((field: any) => ({
+              name: field.name,
+              dataSource: field.dataSource,
+              dataField: field.dataField,
+              dataMethod: field.dataMethod,
+              labelId: field.labelId,
+              isComputed: !!field.isComputed,
+            })),
+            relations: (extracted.relations || []).map((relation: any) => ({
+              name: relation.name,
+              relatedTable: relation.relatedTable,
+              relationType: relation.relationType,
+              cardinality: relation.cardinality,
+              fields: (relation.fields || []).map((field: any) => ({
+                field: field.field || 'Unknown',
+                relatedField: field.relatedField || 'Unknown',
+              })),
+            })),
+            methods: (extracted.methods || []).map((method: any) => (typeof method === 'string' ? method : method.name || 'Unknown')),
+          };
+
+          return formatViewOutput(fallbackInfo, includeFields, includeRelations, includeMethods);
+        }
+      }
+
       return {
         content: [{ type: 'text', text: buildXmlNotAvailableMessage('view', viewName, viewRow.file_path) }],
         isError: true,
@@ -125,8 +170,10 @@ export async function getViewInfoTool(request: CallToolRequest, context: XppServ
     const viewInfo: ViewInfo = {
       name: viewName,
       model: viewRow.model,
+      label: undefined,
       isPublic: false,
       isReadOnly: false,
+      primaryKeyFields: [],
       fields: [],
       relations: [],
       methods: [],
@@ -148,6 +195,12 @@ export async function getViewInfoTool(request: CallToolRequest, context: XppServ
 
     if (axView.PrimaryKey) {
       viewInfo.primaryKey = axView.PrimaryKey[0];
+    }
+
+    viewInfo.primaryKeyFields = extractPrimaryKeyFields(axView.Keys, viewInfo.primaryKey);
+
+    if (axView.Label) {
+      viewInfo.label = axView.Label[0];
     }
 
     // Extract fields
@@ -208,6 +261,10 @@ function extractViewFields(fieldsNode: any): ViewField[] {
         field.isComputed = true;
       }
 
+      if (fieldNode.Label) {
+        field.labelId = fieldNode.Label[0];
+      }
+
       fields.push(field);
     }
   }
@@ -226,6 +283,10 @@ function extractViewFields(fieldsNode: any): ViewField[] {
 
       if (fieldNode.DataField) {
         field.dataField = fieldNode.DataField[0];
+      }
+
+      if (fieldNode.Label) {
+        field.labelId = fieldNode.Label[0];
       }
 
       fields.push(field);
@@ -250,6 +311,7 @@ function extractViewRelations(relationsNode: any): ViewRelation[] {
         relatedTable: relNode.RelatedDataEntity ? relNode.RelatedDataEntity[0] : relNode.RelatedTable ? relNode.RelatedTable[0] : 'Unknown',
         relationType: relNode.RelationType ? relNode.RelationType[0] : 'Unknown',
         cardinality: relNode.Cardinality ? relNode.Cardinality[0] : 'Unknown',
+        fields: extractRelationFields(relNode),
       };
 
       relations.push(relation);
@@ -257,6 +319,60 @@ function extractViewRelations(relationsNode: any): ViewRelation[] {
   }
 
   return relations;
+}
+
+function extractPrimaryKeyFields(keysNode: any, primaryKeyName?: string): string[] {
+  if (!keysNode) {
+    return [];
+  }
+
+  const keyNodes = keysNode[0]?.AxDataEntityViewKey || keysNode[0]?.AxViewKey || [];
+  if (!Array.isArray(keyNodes) || keyNodes.length === 0) {
+    return [];
+  }
+
+  const targetKey = primaryKeyName
+    ? keyNodes.find((key: any) => key.Name && key.Name[0] === primaryKeyName)
+    : keyNodes[0];
+
+  if (!targetKey || !targetKey.Fields || !targetKey.Fields[0]) {
+    return [];
+  }
+
+  const fieldNodes = targetKey.Fields[0].AxDataEntityViewKeyField || targetKey.Fields[0].AxViewKeyField || [];
+  if (!Array.isArray(fieldNodes)) {
+    return [];
+  }
+
+  return fieldNodes
+    .map((field: any) => field.DataField?.[0] || field.Name?.[0] || null)
+    .filter((field: string | null) => !!field);
+}
+
+function extractRelationFields(relationNode: any): ViewRelationField[] {
+  const mappings: ViewRelationField[] = [];
+
+  const relationFieldNodes = relationNode.Fields?.[0]?.AxDataEntityViewRelationField || relationNode.Fields?.[0]?.AxViewRelationField || [];
+  if (Array.isArray(relationFieldNodes)) {
+    for (const fieldNode of relationFieldNodes) {
+      mappings.push({
+        field: fieldNode.DataField?.[0] || fieldNode.Field?.[0] || fieldNode.Name?.[0] || 'Unknown',
+        relatedField: fieldNode.RelatedDataField?.[0] || fieldNode.RelatedField?.[0] || 'Unknown',
+      });
+    }
+  }
+
+  const constraintNodes = relationNode.Constraints?.[0]?.AxDataEntityViewRelationConstraint || relationNode.Constraints?.[0]?.AxViewRelationConstraint || [];
+  if (Array.isArray(constraintNodes)) {
+    for (const constraintNode of constraintNodes) {
+      mappings.push({
+        field: constraintNode.DataField?.[0] || constraintNode.Field?.[0] || 'Unknown',
+        relatedField: constraintNode.RelatedDataField?.[0] || constraintNode.RelatedField?.[0] || 'Unknown',
+      });
+    }
+  }
+
+  return mappings;
 }
 
 /**
@@ -270,11 +386,18 @@ function formatViewOutput(
 ): any {
   let output = `# View: \`${viewInfo.name}\`\n\n`;
   output += `**Model:** ${viewInfo.model}\n`;
+  if (viewInfo.label) {
+    output += `**Label:** ${viewInfo.label}\n`;
+  }
   output += `**Public:** ${viewInfo.isPublic ? '✅' : '❌'}\n`;
   output += `**Read-Only:** ${viewInfo.isReadOnly ? '✅' : '❌'}\n`;
   
   if (viewInfo.primaryKey) {
     output += `**Primary Key:** ${viewInfo.primaryKey}\n`;
+  }
+
+  if (viewInfo.primaryKeyFields.length > 0) {
+    output += `**Primary Key Fields:** ${viewInfo.primaryKeyFields.join(', ')}\n`;
   }
   
   output += `\n`;
@@ -288,22 +411,22 @@ function formatViewOutput(
 
     if (mappedFields.length > 0) {
       output += `### Mapped Fields\n\n`;
-      output += `| Field Name | Data Source | Data Field |\n`;
-      output += `|------------|-------------|------------|\n`;
+      output += `| Field Name | Data Source | Data Field | Label ID |\n`;
+      output += `|------------|-------------|------------|----------|\n`;
       
       for (const field of mappedFields) {
-        output += `| ${field.name} | ${field.dataSource || '-'} | ${field.dataField || '-'} |\n`;
+        output += `| ${field.name} | ${field.dataSource || '-'} | ${field.dataField || '-'} | ${field.labelId || '-'} |\n`;
       }
       output += `\n`;
     }
 
     if (computedFields.length > 0) {
       output += `### Computed Fields\n\n`;
-      output += `| Field Name | Data Method |\n`;
-      output += `|------------|-------------|\n`;
+      output += `| Field Name | Data Method | Label ID |\n`;
+      output += `|------------|-------------|----------|\n`;
       
       for (const field of computedFields) {
-        output += `| ${field.name} | ${field.dataMethod || '-'} |\n`;
+        output += `| ${field.name} | ${field.dataMethod || '-'} | ${field.labelId || '-'} |\n`;
       }
       output += `\n`;
     }
@@ -319,6 +442,20 @@ function formatViewOutput(
       output += `| ${rel.name} | ${rel.relatedTable} | ${rel.relationType} | ${rel.cardinality} |\n`;
     }
     output += `\n`;
+
+    const relationMappings = viewInfo.relations.filter(rel => rel.fields.length > 0);
+    if (relationMappings.length > 0) {
+      output += `### Relation Field Mappings\n\n`;
+      output += `| Relation | Field | Related Field |\n`;
+      output += `|----------|-------|---------------|\n`;
+
+      for (const rel of relationMappings) {
+        for (const mapping of rel.fields) {
+          output += `| ${rel.name} | ${mapping.field} | ${mapping.relatedField} |\n`;
+        }
+      }
+      output += `\n`;
+    }
   }
 
   // Methods

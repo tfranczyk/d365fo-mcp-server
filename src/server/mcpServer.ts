@@ -212,7 +212,7 @@ Examples:
 
 Returns:
 - All table METHODS with signatures and source code (calcAmount, validateWrite, etc.)
-- All fields with Extended Data Types (EDT) or base types (int, str, real, etc.)
+- All fields with explicit EDT marker when present (format: EDT: <Name> (base: <Type>)), otherwise base type (format: Type: <Type>)
 - Indexes: primary key, unique indexes, clustered indexes
 - Relations: foreign keys to other tables with cardinality
 - Table properties: caching strategy, TableGroup, SaveDataPerCompany, etc.
@@ -877,6 +877,44 @@ Examples:
               },
             },
             required: ['enumName'],
+          },
+        },
+        {
+          name: 'get_edt_info',
+          description: `📊 Get complete Extended Data Type (EDT) definition including base type, labels, reference table, and EDT properties. EDT names are UNIQUE ACROSS ALL MODELS.
+
+Returns:
+- Core EDT properties (Extends, EnumType, ReferenceTable, StringSize, DisplayLength, etc.)
+- Label/help/configuration metadata
+- Additional raw EDT properties when present
+
+Use WHEN:
+- You need to inspect an EDT before using it on table fields
+- You need reference table / relation metadata from AxEdt
+- You need to validate EDT inheritance (Extends) and display constraints
+
+FALLBACK Strategy (if EDT not found with modelName):
+- EDT names are globally unique, so omit modelName and retry
+- Call get_edt_info(edtName="MyEdt") without modelName → will search ALL models
+- If first call fails with a specific modelName, ALWAYS retry without modelName
+
+Examples:
+- get_edt_info("WhsInboundShipmentOrderMessageRecId") → finds EDT regardless of model
+- If model-specific lookup fails, retry: get_edt_info("WhsInboundShipmentOrderMessageRecId") (no modelName)
+- get_edt_info("CustAccount") → Customer account number EDT`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              edtName: {
+                type: 'string',
+                description: 'Name of the Extended Data Type (EDT)'
+              },
+              modelName: {
+                type: 'string',
+                description: 'Model name (optional). CAUTION: If EDT not found with specific modelName, omit this and retry - EDT names are globally unique'
+              },
+            },
+            required: ['edtName'],
           },
         },
         {

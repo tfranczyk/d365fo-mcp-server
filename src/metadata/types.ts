@@ -87,6 +87,43 @@ export interface XppConstraintInfo {
   relatedField: string;
 }
 
+export interface XppViewFieldInfo {
+  name: string;
+  dataSource?: string;
+  dataField?: string;
+  dataMethod?: string;
+  labelId?: string;
+  isComputed: boolean;
+}
+
+export interface XppViewRelationFieldInfo {
+  field: string;
+  relatedField: string;
+}
+
+export interface XppViewRelationInfo {
+  name: string;
+  relatedTable: string;
+  relationType: string;
+  cardinality: string;
+  fields: XppViewRelationFieldInfo[];
+}
+
+export interface XppViewInfo {
+  name: string;
+  model: string;
+  sourcePath: string;
+  type: 'view' | 'data-entity';
+  label?: string;
+  isPublic: boolean;
+  isReadOnly: boolean;
+  primaryKey?: string;
+  primaryKeyFields: string[];
+  fields: XppViewFieldInfo[];
+  relations: XppViewRelationInfo[];
+  methods: XppMethodInfo[];
+}
+
 export interface XppSymbol {
   name: string;
   type: 'class' | 'table' | 'form' | 'query' | 'view' | 'method' | 'field' | 'enum' | 'edt';
