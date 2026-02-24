@@ -104,14 +104,14 @@ Copy-Item -Path ".github" -Destination "C:\Path\To\YourSolution\" -Recurse
 | `Is my class MyHelper missing any standard methods?` | Class completeness analysis |
 | `Create a batch job for order processing` | Complete batch job template |
 
-### � Smart Object Generation
+### 🎨 Smart Object Generation
 | Prompt | What happens |
 |--------|-------------|
 | `Generate a transaction table with common fields` | AI-driven table with intelligent field/index suggestions |
 | `Create a SimpleList form for MyOrderTable` | AI-driven form with datasource and grid controls |
 | `What EDT should I use for CustomerAccount field?` | Suggests EDTs using fuzzy matching and pattern analysis |
 
-### �🏷️ Label Management
+### 🏷️ Label Management
 | Prompt | What happens |
 |--------|-------------|
 | `Find a label for "customer"` | Searches all AxLabelFile objects |
