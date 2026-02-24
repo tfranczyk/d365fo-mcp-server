@@ -11,9 +11,9 @@ The MCP server was built for the traditional D365FO on-prem development model wh
 - Package name equals model name (path: `ModelName\ModelName\AxClass\`)
 
 With UDE via Power Platform Tools in VS2022:
-- **Custom code** lives in a separate root (e.g., `C:\CustomXppMetadata...`) defined by `ModelStoreFolder` in XPP config
+- **Custom code** lives in a separate root (e.g., `C:\CustomXppCode...`) defined by `ModelStoreFolder` in XPP config
 - **Microsoft code** lives in a version-specific path (e.g., `C:\Users\...\Dynamics365\10.0.2428.63\PackagesLocalDirectory`) defined by `FrameworkDirectory`
-- Packages can contain multiple models (e.g., "Enhancements" package has 100+ models)
+- Packages can contain multiple models (e.g., "CustomExtensions" package has 100+ models)
 - Path structure is `PackageName\ModelName\AxClass\` where PackageName != ModelName
 
 ### Specific Failures
@@ -44,7 +44,7 @@ Reads XPP config JSON files from `%LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig
 **XPP Config JSON structure** (at `%LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig\{name}___{version}.json`):
 ```json
 {
-  "ModelStoreFolder": "C:\\CustomXppMetadatandynwcfg.isz",
+  "ModelStoreFolder": "C:\\CustomXppCode",
   "FrameworkDirectory": "C:\\Users\\...\\Dynamics365\\10.0.2428.63\\PackagesLocalDirectory",
   "ReferencePackagesPaths": ["C:\\Users\\...\\PackagesLocalDirectory"],
   "CrossReferencesDatabaseName": "XRef_...",
@@ -57,7 +57,7 @@ Reads XPP config JSON files from `%LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig
 **New `.env` variables:**
 ```
 DEV_ENVIRONMENT_TYPE=auto              # auto | traditional | ude
-XPP_CONFIG_NAME=                       # e.g., heb-lebarre2-udx___10.0.2428.63 (empty = newest)
+XPP_CONFIG_NAME=                       # e.g., contoso-dev-env1___10.0.2428.63 (empty = newest)
 CUSTOM_PACKAGES_PATH=                  # Override custom X++ root
 MICROSOFT_PACKAGES_PATH=              # Override Microsoft X++ root
 ```
@@ -87,8 +87,8 @@ Maps `modelName` to `packageName` using descriptor XML files.
 
 **Descriptor XML key fields:**
 ```xml
-<Name>HEB 3PL Inventory Upload</Name>          <!-- model name -->
-<ModelModule>Enhancements</ModelModule>          <!-- package name -->
+<Name>Contoso Inventory Upload</Name>          <!-- model name -->
+<ModelModule>CustomExtensions</ModelModule>          <!-- package name -->
 ```
 
 **Caching:** Build lookup lazily on first use, scanning both custom and Microsoft roots. Cache invalidated on config change.
@@ -102,7 +102,7 @@ The resolver also tracks which root (custom vs Microsoft) each model was found i
 New parameter:
 ```typescript
 packageName: z.string().optional()
-  .describe('Package name (e.g., Enhancements). Auto-resolved from model if omitted.')
+  .describe('Package name (e.g., CustomExtensions). Auto-resolved from model if omitted.')
 ```
 
 Path construction fix (src/tools/createD365File.ts:788-793):
@@ -209,20 +209,20 @@ In UDE mode, also attempt to extract `packageName` from the workspace path struc
 
 ```
 UDE Custom Root (ModelStoreFolder):
-  C:\CustomXppMetadata...\
-    Enhancements\                    # Package
+  C:\CustomXppCode...\
+    CustomExtensions\                    # Package
       Descriptor\
-        HEB Advanced DB Logging.xml  # Model descriptor
-        HEB Utilities.xml
-      HEB Advanced DB Logging\       # Model
+        Contoso Advanced Logging.xml  # Model descriptor
+        Contoso Utilities.xml
+      Contoso Advanced Logging\       # Model
         AxClass\
         AxTable\
-      HEB Utilities\                 # Model
+      Contoso Utilities\                 # Model
         AxClass\
-    ALDairy\                         # Package (name == model name)
+    ContosoRetail\                         # Package (name == model name)
       Descriptor\
-        ALDairy.xml
-      ALDairy\                       # Model
+        ContosoRetail.xml
+      ContosoRetail\                       # Model
         AxClass\
 
 UDE Microsoft Root (FrameworkDirectory):

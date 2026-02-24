@@ -497,7 +497,7 @@ EXAMPLES:
               },
               packageName: {
                 type: 'string',
-                description: 'Package name (e.g., Enhancements, ApplicationSuite). Auto-resolved from model name if omitted. Required when package name differs from model name.',
+                description: 'Package name (e.g., CustomExtensions, ApplicationSuite). Auto-resolved from model name if omitted. Required when package name differs from model name.',
               },
               packagePath: {
                 type: 'string',

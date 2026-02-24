@@ -128,10 +128,10 @@ describe('XppConfigProvider', () => {
   describe('parseConfigFilename', () => {
     it('should parse name___version.json pattern', () => {
       const provider = new XppConfigProvider(testConfigDir);
-      const result = provider.parseConfigFilename('heb-lebarre2-udx___10.0.2428.63.json');
+      const result = provider.parseConfigFilename('contoso-dev-env1___10.0.2428.63.json');
 
       expect(result).not.toBeNull();
-      expect(result!.configName).toBe('heb-lebarre2-udx');
+      expect(result!.configName).toBe('contoso-dev-env1');
       expect(result!.version).toBe('10.0.2428.63');
     });
 

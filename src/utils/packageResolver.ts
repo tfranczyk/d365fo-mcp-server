@@ -8,8 +8,8 @@
  *   {Root}/{PackageName}/Descriptor/{ModelName}.xml
  *
  * The descriptor XML contains <ModelModule> (package name) and <Name> (model name).
- * A single package (e.g., "Enhancements") can contain many models
- * (e.g., "HEB Utilities", "HEB Reporting").
+ * A single package (e.g., "CustomExtensions") can contain many models
+ * (e.g., "Contoso Utilities", "Contoso Reporting").
  *
  * This resolver builds a map from model name -> package info by:
  * 1. Reading descriptor XML files (primary strategy)

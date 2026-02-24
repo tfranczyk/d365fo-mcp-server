@@ -168,10 +168,10 @@ describe('XppConfigProvider', () => {
   describe('parseConfigFilename', () => {
     it('should parse name___version.json pattern', () => {
       const provider = new XppConfigProvider(testConfigDir);
-      const result = provider.parseConfigFilename('heb-lebarre2-udx___10.0.2428.63.json');
+      const result = provider.parseConfigFilename('contoso-dev-env1___10.0.2428.63.json');
 
       expect(result).not.toBeNull();
-      expect(result!.configName).toBe('heb-lebarre2-udx');
+      expect(result!.configName).toBe('contoso-dev-env1');
       expect(result!.version).toBe('10.0.2428.63');
     });
 
@@ -417,25 +417,25 @@ describe('PackageResolver', () => {
 
   describe('resolve', () => {
     it('should resolve model name to package name via descriptor', async () => {
-      await createModel('Enhancements', 'HEB Utilities');
-      await createModel('Enhancements', 'HEB Reporting');
+      await createModel('CustomExtensions', 'Contoso Utilities');
+      await createModel('CustomExtensions', 'Contoso Reporting');
 
       const resolver = new PackageResolver([testRoot]);
-      const result = await resolver.resolve('HEB Utilities');
+      const result = await resolver.resolve('Contoso Utilities');
 
       expect(result).not.toBeNull();
-      expect(result!.packageName).toBe('Enhancements');
+      expect(result!.packageName).toBe('CustomExtensions');
       expect(result!.rootPath).toBe(testRoot);
     });
 
     it('should resolve when package name equals model name', async () => {
-      await createModel('ALDairy', 'ALDairy');
+      await createModel('ContosoRetail', 'ContosoRetail');
 
       const resolver = new PackageResolver([testRoot]);
-      const result = await resolver.resolve('ALDairy');
+      const result = await resolver.resolve('ContosoRetail');
 
       expect(result).not.toBeNull();
-      expect(result!.packageName).toBe('ALDairy');
+      expect(result!.packageName).toBe('ContosoRetail');
     });
 
     it('should return null for unknown model', async () => {
@@ -449,7 +449,7 @@ describe('PackageResolver', () => {
       const secondRoot = path.join(os.tmpdir(), `pkg-resolver-test2-${Date.now()}`);
       await fs.mkdir(secondRoot, { recursive: true });
 
-      await createModel('Enhancements', 'HEB Utilities');
+      await createModel('CustomExtensions', 'Contoso Utilities');
 
       // Create model in second root
       const msModelDir = path.join(secondRoot, 'ApplicationSuite', 'Foundation');
@@ -464,8 +464,8 @@ describe('PackageResolver', () => {
 
       const resolver = new PackageResolver([testRoot, secondRoot]);
 
-      const custom = await resolver.resolve('HEB Utilities');
-      expect(custom!.packageName).toBe('Enhancements');
+      const custom = await resolver.resolve('Contoso Utilities');
+      expect(custom!.packageName).toBe('CustomExtensions');
       expect(custom!.rootPath).toBe(testRoot);
 
       const ms = await resolver.resolve('Foundation');
@@ -905,7 +905,7 @@ In `CreateD365FileArgsSchema` (line 14), add after the `modelName` field:
   packageName: z
     .string()
     .optional()
-    .describe('Package name (e.g., Enhancements, ApplicationSuite). Auto-resolved from model name if omitted.'),
+    .describe('Package name (e.g., CustomExtensions, ApplicationSuite). Auto-resolved from model name if omitted.'),
 ```
 
 **Step 2: Add imports**
@@ -1129,7 +1129,7 @@ Find the tool definition for `create_d365fo_file` and add `packageName` to its i
 ```typescript
 packageName: {
   type: 'string',
-  description: 'Package name (e.g., Enhancements, ApplicationSuite). Auto-resolved from model name if omitted. Required when package name differs from model name.',
+  description: 'Package name (e.g., CustomExtensions, ApplicationSuite). Auto-resolved from model name if omitted. Required when package name differs from model name.',
 },
 ```
 
@@ -1189,12 +1189,12 @@ After the `PACKAGES_PATH` line (54), add:
 
 # XPP config name to use (from %LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig\)
 # Leave empty to auto-select newest config
-# Example: heb-lebarre2-udx___10.0.2428.63
+# Example: contoso-dev-env1___10.0.2428.63
 # XPP_CONFIG_NAME=
 
 # Override paths (takes priority over XPP config values)
 # Custom X++ code root (from XPP config ModelStoreFolder)
-# CUSTOM_PACKAGES_PATH=C:\CustomXppMetadata
+# CUSTOM_PACKAGES_PATH=C:\CustomXppCode
 
 # Microsoft X++ code root (from XPP config FrameworkDirectory)
 # MICROSOFT_PACKAGES_PATH=C:\Users\...\Dynamics365\10.0.2428.63\PackagesLocalDirectory
@@ -1212,7 +1212,7 @@ After the `PACKAGES_PATH` line (54), add:
     "context": {
       "workspacePath": "K:\\AOSService\\PackagesLocalDirectory\\YourModelName",
       "packagePath": "K:\\AOSService\\PackagesLocalDirectory",
-      "customPackagesPath": "C:\\CustomXppMetadata",
+      "customPackagesPath": "C:\\CustomXppCode",
       "microsoftPackagesPath": "C:\\Users\\...\\Dynamics365\\10.0.2428.63\\PackagesLocalDirectory",
       "devEnvironmentType": "auto"
     }

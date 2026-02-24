@@ -47,25 +47,25 @@ describe('PackageResolver', () => {
 
   describe('resolve', () => {
     it('should resolve model name to package name via descriptor', async () => {
-      await createModel('Enhancements', 'HEB Utilities');
-      await createModel('Enhancements', 'HEB Reporting');
+      await createModel('CustomExtensions', 'Contoso Utilities');
+      await createModel('CustomExtensions', 'Contoso Reporting');
 
       const resolver = new PackageResolver([testRoot]);
-      const result = await resolver.resolve('HEB Utilities');
+      const result = await resolver.resolve('Contoso Utilities');
 
       expect(result).not.toBeNull();
-      expect(result!.packageName).toBe('Enhancements');
+      expect(result!.packageName).toBe('CustomExtensions');
       expect(result!.rootPath).toBe(testRoot);
     });
 
     it('should resolve when package name equals model name', async () => {
-      await createModel('ALDairy', 'ALDairy');
+      await createModel('ContosoRetail', 'ContosoRetail');
 
       const resolver = new PackageResolver([testRoot]);
-      const result = await resolver.resolve('ALDairy');
+      const result = await resolver.resolve('ContosoRetail');
 
       expect(result).not.toBeNull();
-      expect(result!.packageName).toBe('ALDairy');
+      expect(result!.packageName).toBe('ContosoRetail');
     });
 
     it('should return null for unknown model', async () => {
@@ -79,7 +79,7 @@ describe('PackageResolver', () => {
       const secondRoot = path.join(os.tmpdir(), `pkg-resolver-test2-${Date.now()}`);
       await fs.mkdir(secondRoot, { recursive: true });
 
-      await createModel('Enhancements', 'HEB Utilities');
+      await createModel('CustomExtensions', 'Contoso Utilities');
 
       // Create model in second root
       const msModelDir = path.join(secondRoot, 'ApplicationSuite', 'Foundation');
@@ -94,8 +94,8 @@ describe('PackageResolver', () => {
 
       const resolver = new PackageResolver([testRoot, secondRoot]);
 
-      const custom = await resolver.resolve('HEB Utilities');
-      expect(custom!.packageName).toBe('Enhancements');
+      const custom = await resolver.resolve('Contoso Utilities');
+      expect(custom!.packageName).toBe('CustomExtensions');
       expect(custom!.rootPath).toBe(testRoot);
 
       const ms = await resolver.resolve('Foundation');

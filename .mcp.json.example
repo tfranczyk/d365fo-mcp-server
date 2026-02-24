@@ -11,7 +11,7 @@
     "context": {
       "workspacePath": "K:\\AOSService\\PackagesLocalDirectory\\YourModelName",
       "packagePath": "K:\\AOSService\\PackagesLocalDirectory",
-      "customPackagesPath": "C:\\CustomXppMetadata",
+      "customPackagesPath": "C:\\CustomXppCode",
       "microsoftPackagesPath": "C:\\Users\\...\\Dynamics365\\10.0.2428.63\\PackagesLocalDirectory",
       "devEnvironmentType": "auto"
     }

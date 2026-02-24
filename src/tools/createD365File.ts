@@ -25,7 +25,7 @@ const CreateD365FileArgsSchema = z.object({
   packageName: z
     .string()
     .optional()
-    .describe('Package name (e.g., Enhancements, ApplicationSuite). Auto-resolved from model name if omitted.'),
+    .describe('Package name (e.g., CustomExtensions, ApplicationSuite). Auto-resolved from model name if omitted.'),
   packagePath: z
     .string()
     .optional()
