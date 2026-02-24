@@ -319,54 +319,31 @@ async function main() {
     serverState.isHealthy = true;
     serverState.statusMessage = 'Ready';
   } else {
-    // HTTP mode - start server immediately, initialize asynchronously
+    // HTTP mode - initialize fully BEFORE opening the port.
+    // VS Copilot's MCP client does not retry on 503/404, so the port must only
+    // become available once the server is completely ready to handle requests.
     console.log('📡 Using HTTP transport for standalone server');
-    
-    // Create Express app immediately
+
+    const { mcpServer, symbolIndex, parser, cache, workspaceScanner, hybridSearch, termRelationshipGraph } =
+      await initializeServices();
+
+    // Create Express app
     const app = express();
-    
+
     // Trust proxy - required for Azure App Service (behind reverse proxy)
     app.set('trust proxy', 1);
-    
+
     app.use(express.json());
 
-    // Register /mcp immediately so MCP clients don't get 404 during startup.
-    // While server is initializing, return JSON-RPC 503 so the client retries
-    // instead of treating it as a permanent "method not found" failure.
-    app.use('/mcp', (req, res, next) => {
-      if (!serverState.isReady) {
-        // Only gate POST requests (actual tool calls); let the transport handle
-        // other methods (GET for SSE etc.) once registered.
-        if (req.method === 'POST') {
-          const id = (req.body as any)?.id ?? null;
-          res.status(503).json({
-            jsonrpc: '2.0',
-            error: {
-              code: -32603,
-              message: `Server is starting up (${serverState.statusMessage}). Please retry in a few seconds.`,
-            },
-            id,
-          });
-          return;
-        }
-      }
-      next();
-    });
+    // Register MCP transport (all /mcp routes)
+    createStreamableHttpTransport(mcpServer, app, { symbolIndex, parser, cache, workspaceScanner, hybridSearch, termRelationshipGraph });
 
-    // Health check endpoint - responds immediately with current state
+    serverState.isReady = true;
+    serverState.isHealthy = true;
+    serverState.statusMessage = 'Ready';
+
+    // Health check endpoint
     app.get('/health', (_req, res) => {
-      if (!serverState.isReady) {
-        // Server is starting - return 503 Service Unavailable
-        return res.status(503).json({
-          status: 'starting',
-          ready: false,
-          service: 'd365fo-mcp-server',
-          version: '1.0.0',
-          message: serverState.statusMessage,
-        });
-      }
-
-      // Server is ready - return 200 OK
       return res.json({
         status: 'healthy',
         ready: true,
@@ -376,80 +353,60 @@ async function main() {
       });
     });
 
-    // Start server on 0.0.0.0 for Azure App Service
+    // Start listening — server is fully initialised at this point
     const host = process.env.HOST || '0.0.0.0';
     app.listen(PORT, host, () => {
+      console.log('');
+      console.log('✅ Server is READY!');
       console.log(`✅ D365 F&O MCP Server listening on ${host}:${PORT}`);
+      console.log(`📡 MCP endpoint: http://${host}:${PORT}/mcp`);
       console.log(`🏥 Health check: http://localhost:${PORT}/health`);
       console.log(`🔧 Server mode: ${SERVER_MODE}`);
-      console.log('⏳ Initializing services asynchronously...');
+      console.log('');
+      console.log('🎯 Available tools (29 total):');
+      console.log('   🔍 Search & Discovery (8):');
+      console.log('   - search              Search 584K+ D365FO symbols by name or keyword');
+      console.log('   - batch_search        Execute multiple searches in parallel (3x faster)');
+      console.log('   - search_extensions   Search only custom/ISV models (filters out standard code)');
+      console.log('   - get_class_info      Full class: all methods with source, inheritance, attributes');
+      console.log('   - get_table_info      Full table: fields, indexes, relations, methods');
+      console.log('   - get_enum_info       Enum values with integer values and labels');
+      console.log('   - get_edt_info        Extended Data Type: base type, labels, properties');
+      console.log('   - code_completion     IntelliSense-style method/field listing on any object');
+      console.log('');
+      console.log('   🏷️  Label Management (3):');
+      console.log('   - search_labels       Full-text search across all AxLabelFile labels');
+      console.log('   - get_label_info      Get all language translations for a label ID');
+      console.log('   - create_label        Add new label to all language files in a model');
+      console.log('');
+      console.log('   📊 Advanced Object Info (5):');
+      console.log('   - get_form_info       Form datasources, control hierarchy, and methods');
+      console.log('   - get_query_info      Query datasources, joins, field lists, and ranges');
+      console.log('   - get_view_info       View/data entity fields, relations, computed columns');
+      console.log('   - get_method_signature  Exact method signature (required before CoC extensions)');
+      console.log('   - find_references     Where-used analysis across the entire codebase');
+      console.log('');
+      console.log('   🧠 Intelligent Code Generation (4):');
+      console.log('   - analyze_code_patterns         Find common patterns used in a scenario');
+      console.log('   - suggest_method_implementation Real examples of similar method implementations');
+      console.log('   - analyze_class_completeness    Find missing standard methods on a class');
+      console.log('   - get_api_usage_patterns        Show how an API is initialized and called');
+      console.log('');
+      console.log('   🎨 Smart Object Generation (3):');
+      console.log('   - generate_smart_table  AI-driven table generation with pattern analysis');
+      console.log('   - generate_smart_form   AI-driven form generation with pattern analysis');
+      console.log('   - suggest_edt           Suggest EDT for field name using fuzzy matching');
+      console.log('');
+      console.log('   📝 File & Metadata Operations (3):');
+      console.log('   - generate_d365fo_xml  Generate D365FO XML content (preview / cloud-ready)');
+      console.log('   - create_d365fo_file   Create D365FO file in correct AOT location (Windows)');
+      console.log('   - modify_d365fo_file   Safely edit D365FO XML with backup & rollback (Windows)');
+      console.log('');
+      console.log('   📈 Pattern Analysis (3):');
+      console.log('   - get_table_patterns   Analyze common field/index patterns for table groups');
+      console.log('   - get_form_patterns    Analyze common datasource/control patterns for forms');
+      console.log('   - generate_code        Generate X++ boilerplate (class, batch-job, data-entity, …)');
     });
-
-    // Initialize services asynchronously after server is running
-    initializeServices()
-      .then(({ mcpServer, symbolIndex, parser, cache, workspaceScanner, hybridSearch, termRelationshipGraph }) => {
-        // MCP endpoints - register after initialization
-        createStreamableHttpTransport(mcpServer, app, { symbolIndex, parser, cache, workspaceScanner, hybridSearch, termRelationshipGraph });
-        
-        serverState.isReady = true;
-        serverState.isHealthy = true;
-        serverState.statusMessage = 'Ready';
-        
-        console.log('');
-        console.log('✅ Server is READY!');
-        console.log(`📡 MCP endpoint: http://localhost:${PORT}/mcp`);
-        console.log('');
-        console.log('🎯 Available tools (29 total):');
-        console.log('   🔍 Search & Discovery (8):');
-        console.log('   - search              Search 584K+ D365FO symbols by name or keyword');
-        console.log('   - batch_search        Execute multiple searches in parallel (3x faster)');
-        console.log('   - search_extensions   Search only custom/ISV models (filters out standard code)');
-        console.log('   - get_class_info      Full class: all methods with source, inheritance, attributes');
-        console.log('   - get_table_info      Full table: fields, indexes, relations, methods');
-        console.log('   - get_enum_info       Enum values with integer values and labels');
-        console.log('   - get_edt_info        Extended Data Type: base type, labels, properties');
-        console.log('   - code_completion     IntelliSense-style method/field listing on any object');
-        console.log('');
-        console.log('   🏷️  Label Management (3):');
-        console.log('   - search_labels       Full-text search across all AxLabelFile labels');
-        console.log('   - get_label_info      Get all language translations for a label ID');
-        console.log('   - create_label        Add new label to all language files in a model');
-        console.log('');
-        console.log('   📊 Advanced Object Info (5):');
-        console.log('   - get_form_info       Form datasources, control hierarchy, and methods');
-        console.log('   - get_query_info      Query datasources, joins, field lists, and ranges');
-        console.log('   - get_view_info       View/data entity fields, relations, computed columns');
-        console.log('   - get_method_signature  Exact method signature (required before CoC extensions)');
-        console.log('   - find_references     Where-used analysis across the entire codebase');
-        console.log('');
-        console.log('   🧠 Intelligent Code Generation (4):');
-        console.log('   - analyze_code_patterns         Find common patterns used in a scenario');
-        console.log('   - suggest_method_implementation Real examples of similar method implementations');
-        console.log('   - analyze_class_completeness    Find missing standard methods on a class');
-        console.log('   - get_api_usage_patterns        Show how an API is initialized and called');
-        console.log('');
-        console.log('   🎨 Smart Object Generation (3):');
-        console.log('   - generate_smart_table  AI-driven table generation with pattern analysis');
-        console.log('   - generate_smart_form   AI-driven form generation with pattern analysis');
-        console.log('   - suggest_edt           Suggest EDT for field name using fuzzy matching');
-        console.log('');
-        console.log('   📝 File & Metadata Operations (3):');
-        console.log('   - generate_d365fo_xml  Generate D365FO XML content (preview / cloud-ready)');
-        console.log('   - create_d365fo_file   Create D365FO file in correct AOT location (Windows)');
-        console.log('   - modify_d365fo_file   Safely edit D365FO XML with backup & rollback (Windows)');
-        console.log('');
-        console.log('   📈 Pattern Analysis (3):');
-        console.log('   - get_table_patterns   Analyze common field/index patterns for table groups');
-        console.log('   - get_form_patterns    Analyze common datasource/control patterns for forms');
-        console.log('   - generate_code        Generate X++ boilerplate (class, batch-job, data-entity, …)');
-      })
-      .catch((error) => {
-        console.error('❌ Failed to initialize services:', error);
-        serverState.isReady = false;
-        serverState.isHealthy = false;
-        serverState.statusMessage = `Initialization failed: ${error.message}`;
-        // Don't exit - keep server running for health check visibility
-      });
   }
 }
 
