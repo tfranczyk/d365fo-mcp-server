@@ -26,7 +26,9 @@ Complete guide for installing and deploying the D365 F&O MCP Server.
 - **Azure Cache for Redis** — optional, speeds up repeated queries
 
 ### D365FO Access
-- A D365FO development environment with PackagesLocalDirectory, or
+
+- A D365FO development environment with PackagesLocalDirectory (traditional), or
+- A UDE environment with Power Platform Tools in VS2022 (custom + Microsoft metadata roots), or
 - A metadata export from your D365FO environment
 
 ---
@@ -52,7 +54,7 @@ copy .env.example .env
 Key settings in `.env`:
 
 ```env
-# Path to your D365FO packages
+# Path to your D365FO packages (traditional on-prem setup)
 PACKAGES_PATH=C:/AosService/PackagesLocalDirectory
 
 # Your custom model names (comma-separated)
@@ -67,6 +69,14 @@ LABELS_DB_PATH=./data/xpp-metadata-labels.db   # Labels database (~500 MB for 4 
 # Default: en-US,cs,sk,de (4 languages)
 # Use 'all' for all 70+ languages (database will be 8+ GB)
 LABEL_LANGUAGES=en-US,cs,sk,de
+
+# --- UDE (Unified Developer Experience) ---
+# Set these if you use Power Platform Tools in VS2022 instead of a traditional on-prem VM.
+# When auto, the server reads XPP config files from %LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig\
+# DEV_ENVIRONMENT_TYPE=auto
+# XPP_CONFIG_NAME=                              # Leave empty to auto-select newest config
+# CUSTOM_PACKAGES_PATH=C:/CustomXppCode         # Override custom X++ root
+# MICROSOFT_PACKAGES_PATH=C:/Users/.../Dynamics365/10.0.2428.63/PackagesLocalDirectory
 
 # Azure Blob Storage (only needed for cloud sync)
 AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...

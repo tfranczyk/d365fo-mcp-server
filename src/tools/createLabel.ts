@@ -156,31 +156,38 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
     const { symbolIndex } = context;
 
     // 1. Resolve model directory
-    // Resolve paths for UDE support
+    // Package name can differ from model name in any environment (not just UDE).
     const configManager = getConfigManager();
     const envType = await configManager.getDevEnvironmentType();
 
     let resolvedPackagePath: string;
     let resolvedPackageName: string;
 
-    if (envType === 'ude') {
+    if (args.packageName) {
+      // Explicit packageName always wins, regardless of environment type
+      resolvedPackageName = args.packageName;
+      if (envType === 'ude') {
+        const customPath = await configManager.getCustomPackagesPath();
+        resolvedPackagePath = packagePath || customPath || configManager.getPackagePath() || 'K:\\AosService\\PackagesLocalDirectory';
+      } else {
+        resolvedPackagePath = packagePath || configManager.getPackagePath() || 'K:\\AosService\\PackagesLocalDirectory';
+      }
+    } else if (envType === 'ude') {
+      // UDE mode: auto-resolve package name via descriptor scan
       const customPath = await configManager.getCustomPackagesPath();
       const msPath = await configManager.getMicrosoftPackagesPath();
       const roots = [customPath, msPath].filter(Boolean) as string[];
 
       resolvedPackagePath = packagePath || customPath || 'K:\\AosService\\PackagesLocalDirectory';
 
-      if (args.packageName) {
-        resolvedPackageName = args.packageName;
-      } else {
-        const resolver = new PackageResolver(roots);
-        const resolved = await resolver.resolve(model);
-        resolvedPackageName = resolved?.packageName || model;
-        if (resolved?.rootPath) resolvedPackagePath = resolved.rootPath;
-      }
+      const resolver = new PackageResolver(roots);
+      const resolved = await resolver.resolve(model);
+      resolvedPackageName = resolved?.packageName || model;
+      if (resolved?.rootPath) resolvedPackagePath = resolved.rootPath;
     } else {
+      // Traditional mode without explicit packageName: assume package == model
       resolvedPackagePath = packagePath || configManager.getPackagePath() || 'K:\\AosService\\PackagesLocalDirectory';
-      resolvedPackageName = model; // Traditional: package == model
+      resolvedPackageName = model;
     }
 
     const modelDir = path.join(resolvedPackagePath, resolvedPackageName, model);

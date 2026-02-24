@@ -776,7 +776,8 @@ export async function handleCreateD365File(
       throw new Error(`Unsupported object type: ${args.objectType}`);
     }
 
-    // Construct full path - resolve package name for UDE support
+    // Construct full path - resolve package name
+    // Package name can differ from model name in any environment (not just UDE).
     const configManager = getConfigManager();
     const configPackagePath = configManager.getPackagePath();
     const envType = await configManager.getDevEnvironmentType();
@@ -784,31 +785,34 @@ export async function handleCreateD365File(
     let basePath: string;
     let resolvedPackageName: string;
 
-    if (envType === 'ude') {
-      // UDE mode: resolve package name and determine correct root
+    if (args.packageName) {
+      // Explicit packageName always wins, regardless of environment type
+      resolvedPackageName = args.packageName;
+      if (envType === 'ude') {
+        const customPath = await configManager.getCustomPackagesPath();
+        basePath = customPath || args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
+      } else {
+        basePath = args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
+      }
+    } else if (envType === 'ude') {
+      // UDE mode: auto-resolve package name via descriptor scan
       const customPath = await configManager.getCustomPackagesPath();
       const msPath = await configManager.getMicrosoftPackagesPath();
       const roots = [customPath, msPath].filter(Boolean) as string[];
 
-      if (args.packageName) {
-        resolvedPackageName = args.packageName;
-        // Default to custom path for explicit package names
-        basePath = customPath || args.packagePath || 'K:\\AosService\\PackagesLocalDirectory';
-      } else {
-        const resolver = new PackageResolver(roots);
-        const resolved = await resolver.resolve(actualModelName);
+      const resolver = new PackageResolver(roots);
+      const resolved = await resolver.resolve(actualModelName);
 
-        if (resolved) {
-          resolvedPackageName = resolved.packageName;
-          basePath = resolved.rootPath;
-        } else {
-          // Fallback: assume package == model (common case)
-          resolvedPackageName = actualModelName;
-          basePath = customPath || args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
-        }
+      if (resolved) {
+        resolvedPackageName = resolved.packageName;
+        basePath = resolved.rootPath;
+      } else {
+        // Fallback: assume package == model (common case)
+        resolvedPackageName = actualModelName;
+        basePath = customPath || args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
       }
     } else {
-      // Traditional mode: package == model (backward compatible)
+      // Traditional mode without explicit packageName: assume package == model
       resolvedPackageName = actualModelName;
       basePath =
         args.packagePath ||
