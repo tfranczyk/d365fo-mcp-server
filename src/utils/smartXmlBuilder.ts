@@ -470,4 +470,5 @@ export class SmartXmlBuilder {
 }
 
 // Re-export pattern types so callers can import from this module without needing a separate import
-export { FormPatternTemplates, FormPattern, FormTemplateOptions } from './formPatternTemplates.js';
+export { FormPatternTemplates } from './formPatternTemplates.js';
+export type { FormPattern, FormTemplateOptions } from './formPatternTemplates.js';
