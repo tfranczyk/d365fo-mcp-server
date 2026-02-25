@@ -41,20 +41,28 @@ The following built-in tools **MUST NOT** be used on D365FO metadata files (.xml
    - Optional: call `generate_d365fo_xml()` first to get XML content, then pass it to `create_d365fo_file()`
    - `create_file` will corrupt D365FO metadata and break project integration
 
-6. **Use specific tools for specific object types**
+6. **When `generate_smart_table` or `generate_smart_form` returns XML as text — this is SUCCESS, not a failure**
+   - The message `ℹ️ MCP server is running on Azure/Linux — file writing is handled by the local Windows companion` means the tool completed correctly
+   - The **ONLY correct next action** is `create_d365fo_file(objectType=..., objectName=..., xmlContent="<full XML>", addToProject=true)`
+   - ⛔ NEVER try `modify_d365fo_file` as an intermediate or compensating step
+   - ⛔ NEVER fall back to `create_file`, PowerShell scripts, or any built-in file tool
+   - ⛔ NEVER tell the user "the file was not processed correctly" — the XML was generated correctly; only the file write step is pending
+   - The flow is always: `generate_smart_table` → XML text → `create_d365fo_file(xmlContent=...)` — no other alternative exists
+
+7. **Use specific tools for specific object types**
    - For forms: use `get_form_info()`, not `search(type="form")`
    - For queries: use `get_query_info()`, not `search(type="query")`
    - For views/data entities: use `get_view_info()`, not `search(type="view")`
 
-7. **Use correct parameter names**
+8. **Use correct parameter names**
    - `find_references(targetName=...)` — NOT `symbolName`
    - `get_api_usage_patterns(apiName=...)` — NOT `className`
 
-8. **Use valid code generation patterns**
+9. **Use valid code generation patterns**
    - Valid: `class`, `runnable`, `form-handler`, `data-entity`, `batch-job`, `table-extension`
    - Invalid: `coc-extension`, `event-handler`, `service-class` (these do not exist)
 
-9. **ALWAYS search for labels before creating new ones**
+10. **ALWAYS search for labels before creating new ones**
    - Call `search_labels(text)` first — reusing existing labels avoids duplication and translation costs
    - When a suitable label exists, use its reference `@LabelFileId:LabelId` directly
    - Only call `create_label()` when no suitable label is found
@@ -311,21 +319,29 @@ Step 2: generate_smart_form(
 ```
 Step 1: generate_smart_table(
           name="MyOrderTable",
-          modelName="AslCore",      ← pass model name explicitly; no .rnrproj on Azure
           tableGroup="Transaction",
           fieldsHint="OrderId, CustomerAccount, OrderAmount, OrderDate",
-          generateCommonFields=true
+          generateCommonFields=true,
+          methods=["find","exist"]    ← embed methods in XML — do NOT call modify_d365fo_file afterwards
         )
-     → Returns XML as text (no file written — running on Azure/Linux)
+     → Returns "✅ Table XML generated" with ℹ️ Azure/Linux note — this is SUCCESS
+     → The tool response contains MANDATORY NEXT STEP instructions
+     → XML is included in the response
 
-Step 2: create_d365fo_file(           ← call this on the LOCAL write-only companion
+Step 2: create_d365fo_file(           ← IMMEDIATELY after step 1, no intermediate steps
           objectType="table",
-          objectName="AslMyOrderTable",
-          xmlContent="...XML from step 1...",   ← paste full XML here
+          objectName="AslMyOrderTable",   ← use the prefixed name from step 1 response
+          xmlContent="<full XML from step 1>",
           addToProject=true
         )
      → Writes file to K:\AosService\PackagesLocalDirectory\AslCore\AslCore\AxTable\...
      → Adds entry to .rnrproj for VS2022
+
+⛔ FORBIDDEN alternatives when generate_smart_table returns XML text:
+   - create_file()                  ← NEVER — corrupts D365FO metadata
+   - PowerShell / shell scripts     ← NEVER — bypasses AOT structure
+   - modify_d365fo_file()           ← NEVER — not a substitute for create_d365fo_file
+   - Telling user to save manually  ← never needed; create_d365fo_file handles it
 
 Same pattern applies for generate_smart_form + create_d365fo_file(objectType="form", ...).
 ```
@@ -445,6 +461,8 @@ K:\AosService\PackagesLocalDirectory\{Model}\{Model}\AxView\{Name}.xml
 - **Never create tables/forms without analyzing patterns first** — use `get_table_patterns()`/`get_form_patterns()` to learn from existing code
 - **🚨 CRITICAL: NEVER include the model prefix in the `name` parameter of `generate_smart_table` or `generate_smart_form`** — always pass the base name without prefix (e.g., `name="AccountTable"`, NOT `name="AslAccountTable"`). The tool applies the prefix automatically from `modelName` parameter, `D365FO_MODEL_NAME` env var, or `.rnrproj` detection. Pre-applied prefix causes double-prefixing (e.g., `AslAslAccountTable`).
 - **Never call `modify_d365fo_file` after `generate_smart_table` to add methods** — use the `methods` parameter instead; `modify_d365fo_file` fails on Azure/Linux (read-only mode)
+- **🚨 NEVER use `create_file` or PowerShell as a fallback when `generate_smart_table`/`generate_smart_form` returns XML as text** — the `ℹ️ Azure/Linux` message in the response means "pass this XML to `create_d365fo_file(xmlContent=...)`", not "the tool failed". There is NO other acceptable approach.
+- **NEVER interpret `generate_smart_table`/`generate_smart_form` returning XML as a partial failure** — it is a complete success; `create_d365fo_file(xmlContent=...)` is the mandatory and only next step
 
 ## Why MCP Tools Are Required
 

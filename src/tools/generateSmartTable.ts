@@ -408,22 +408,27 @@ export async function handleGenerateSmartTable(
       : `\n> ⚠️  No model resolved — XML generated without prefix. Pass \`modelName\` (e.g. \`"AslCore"\`) for correct object naming.`;
     const nextStep = [
       ``,
-      `**Next step — to write the file and add it to the VS2022 project:**`,
-      `Call \`create_d365fo_file\` on your **local Windows VM write-only companion** with:`,
-      `- \`objectType\`: \`"table"\``,
-      `- \`objectName\`: \`"${finalName}"\``,
-      `- \`xmlContent\`: *(paste the XML below)*`,
-      `- \`addToProject\`: \`true\``,
+      `**✅ MANDATORY NEXT STEP — immediately call \`create_d365fo_file\` with the XML below:**`,
+      `\`\`\``,
+      `create_d365fo_file(`,
+      `  objectType="table",`,
+      `  objectName="${finalName}",`,
+      `  xmlContent="<copy the full XML block below>",`,
+      `  addToProject=true`,
+      `)`,
+      `\`\`\``,
+      `⛔ NEVER use \`create_file\`, PowerShell scripts, or any built-in file tool — they corrupt D365FO metadata and break VS project integration.`,
+      `⛔ NEVER call \`modify_d365fo_file\` to add methods — the \`methods\` parameter in \`generate_smart_table\` already embedded them in the XML above.`,
     ].join('\n');
     return {
       content: [{
         type: 'text',
         text: [
-          `✅ Generated table XML for **${finalName}**` + (resolvedModel ? ` (model: ${resolvedModel})` : ''),
+          `✅ Table XML generated for **${finalName}**` + (resolvedModel ? ` (model: ${resolvedModel})` : ''),
           `   Fields: ${fields.length}, Indexes: ${indexes.length}, Relations: ${relations.length}`,
           noModelNote,
           ``,
-          `⚠️  Running on Azure/Linux — file was NOT written to disk.`,
+          `ℹ️  MCP server is running on Azure/Linux — file writing is handled by the local Windows companion. This is the expected hybrid workflow.`,
           nextStep,
           ``,
           `\`\`\`xml`,

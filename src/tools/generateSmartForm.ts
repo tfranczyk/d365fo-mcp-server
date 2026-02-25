@@ -298,24 +298,28 @@ export async function handleGenerateSmartForm(
       : `\n> ⚠️  No model resolved — XML generated without prefix. Pass \`modelName\` (e.g. \`"AslCore"\`) for correct object naming.`;
     const nextStep = [
       ``,
-      `**Next step — to write the file and add it to the VS2022 project:**`,
-      `Call \`create_d365fo_file\` on your **local Windows VM write-only companion** with:`,
-      `- \`objectType\`: \`"form"\``,
-      `- \`objectName\`: \`"${finalName}"\``,
-      `- \`xmlContent\`: *(paste the XML below)*`,
-      `- \`addToProject\`: \`true\``,
+      `**✅ MANDATORY NEXT STEP — immediately call \`create_d365fo_file\` with the XML below:**`,
+      `\`\`\``,
+      `create_d365fo_file(`,
+      `  objectType="form",`,
+      `  objectName="${finalName}",`,
+      `  xmlContent="<copy the full XML block below>",`,
+      `  addToProject=true`,
+      `)`,
+      `\`\`\``,
+      `⛔ NEVER use \`create_file\`, PowerShell scripts, or any built-in file tool — they corrupt D365FO metadata and break VS project integration.`,
     ].join('\n');
     return {
       content: [
         {
           type: 'text',
           text: [
-            `✅ Generated form XML for **${finalName}**`,
+            `✅ Form XML generated for **${finalName}**`,
             resolvedModel ? `   Model: ${resolvedModel}` : `   ℹ️  No model resolved — no prefix applied. Pass modelName to set prefix.`,
             `   DataSources: ${dataSources.length}, Controls: ${controls.length}`,
             noModelNote,
             ``,
-            `⚠️  Running on Azure/Linux — file was NOT written to disk.`,
+            `ℹ️  MCP server is running on Azure/Linux — file writing is handled by the local Windows companion. This is the expected hybrid workflow.`,
             nextStep,
             ``,
             `\`\`\`xml`,
