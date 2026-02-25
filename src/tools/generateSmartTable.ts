@@ -316,13 +316,33 @@ export async function handleGenerateSmartTable(
 
   // On non-Windows (Azure/Linux): return XML as text — cannot write to K:\ drive
   if (isNonWindows) {
-    const warning = resolvedModel
-      ? `> **Note**: Running on non-Windows. XML returned as text — file was not written to disk.\n> To write to the AOT, run the MCP server on the D365FO Windows VM.\n\n`
-      : `> **Note**: Running on non-Windows and no model name resolved. XML returned without prefix.\n> Provide \`modelName\` (e.g. \`"AslCore"\`) to get correct object naming.\n\n`;
+    const noModelNote = resolvedModel
+      ? ''
+      : `\n> ⚠️  No model resolved — XML generated without prefix. Pass \`modelName\` (e.g. \`"AslCore"\`) for correct object naming.`;
+    const nextStep = [
+      ``,
+      `**Next step — to write the file and add it to the VS2022 project:**`,
+      `Call \`create_d365fo_file\` on your **local Windows VM write-only companion** with:`,
+      `- \`objectType\`: \`"table"\``,
+      `- \`objectName\`: \`"${finalName}"\``,
+      `- \`xmlContent\`: *(paste the XML below)*`,
+      `- \`addToProject\`: \`true\``,
+    ].join('\n');
     return {
       content: [{
         type: 'text',
-        text: `${warning}\`\`\`xml\n${xml}\n\`\`\``,
+        text: [
+          `✅ Generated table XML for **${finalName}**` + (resolvedModel ? ` (model: ${resolvedModel})` : ''),
+          `   Fields: ${fields.length}, Indexes: ${indexes.length}, Relations: ${relations.length}`,
+          noModelNote,
+          ``,
+          `⚠️  Running on Azure/Linux — file was NOT written to disk.`,
+          nextStep,
+          ``,
+          `\`\`\`xml`,
+          xml,
+          `\`\`\``,
+        ].join('\n'),
       }],
     };
   }

@@ -51,6 +51,15 @@ const CreateD365FileArgsSchema = z.object({
     .string()
     .optional()
     .describe('Path to active VS solution directory. Used to find .rnrproj when projectPath is not given.'),
+  xmlContent: z
+    .string()
+    .optional()
+    .describe(
+      'Custom XML content to write verbatim instead of generating a template. ' +
+      'Use this in hybrid setups: call generate_smart_table / generate_smart_form on Azure ' +
+      'to get AI-driven XML, then pass that XML here on the local Windows VM to write the file ' +
+      'and add it to the VS2022 project.'
+    ),
 });
 
 /**
@@ -924,17 +933,20 @@ export async function handleCreateD365File(
       // File doesn't exist, proceed with creation
     }
 
-    // Generate XML content
-    const xmlContent = XmlTemplateGenerator.generate(
-      args.objectType,
-      finalObjectName,
-      args.sourceCode,
-      args.properties
-    );
+    // Generate (or use provided) XML content
+    const xmlContent = args.xmlContent
+      ? args.xmlContent
+      : XmlTemplateGenerator.generate(
+          args.objectType,
+          finalObjectName,
+          args.sourceCode,
+          args.properties
+        );
 
     // Debug: Log XML content length
+    const xmlSource = args.xmlContent ? 'provided by caller' : 'generated from template';
     console.error(
-      `[create_d365fo_file] Generated XML content: ${xmlContent.length} bytes`
+      `[create_d365fo_file] XML content (${xmlSource}): ${xmlContent.length} bytes`
     );
     console.error(
       `[create_d365fo_file] XML preview: ${xmlContent.substring(0, 200)}...`

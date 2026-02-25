@@ -283,6 +283,18 @@ export async function handleGenerateSmartForm(
   // On non-Windows (Azure/Linux) — return XML as text, no file write possible.
   if (isNonWindows) {
     console.log(`[generateSmartForm] Non-Windows environment — returning XML as text (no file write)`);
+    const noModelNote = resolvedModel
+      ? ''
+      : `\n> ⚠️  No model resolved — XML generated without prefix. Pass \`modelName\` (e.g. \`"AslCore"\`) for correct object naming.`;
+    const nextStep = [
+      ``,
+      `**Next step — to write the file and add it to the VS2022 project:**`,
+      `Call \`create_d365fo_file\` on your **local Windows VM write-only companion** with:`,
+      `- \`objectType\`: \`"form"\``,
+      `- \`objectName\`: \`"${finalName}"\``,
+      `- \`xmlContent\`: *(paste the XML below)*`,
+      `- \`addToProject\`: \`true\``,
+    ].join('\n');
     return {
       content: [
         {
@@ -291,9 +303,10 @@ export async function handleGenerateSmartForm(
             `✅ Generated form XML for **${finalName}**`,
             resolvedModel ? `   Model: ${resolvedModel}` : `   ℹ️  No model resolved — no prefix applied. Pass modelName to set prefix.`,
             `   DataSources: ${dataSources.length}, Controls: ${controls.length}`,
+            noModelNote,
             ``,
             `⚠️  Running on Azure/Linux — file was NOT written to disk.`,
-            `   To create the physical file, call create_d365fo_file with the XML below on your local Windows VM.`,
+            nextStep,
             ``,
             `\`\`\`xml`,
             xml,

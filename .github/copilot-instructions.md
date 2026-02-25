@@ -307,7 +307,30 @@ Step 2: generate_smart_form(
      → Creates form with copied datasources and pattern
 ```
 
-### Working with Labels (AxLabelFile)
+**Workflow for hybrid setup (Azure read-only + local Windows VM write-only):**
+```
+Step 1: generate_smart_table(
+          name="MyOrderTable",
+          modelName="AslCore",      ← pass model name explicitly; no .rnrproj on Azure
+          tableGroup="Transaction",
+          fieldsHint="OrderId, CustomerAccount, OrderAmount, OrderDate",
+          generateCommonFields=true
+        )
+     → Returns XML as text (no file written — running on Azure/Linux)
+
+Step 2: create_d365fo_file(           ← call this on the LOCAL write-only companion
+          objectType="table",
+          objectName="AslMyOrderTable",
+          xmlContent="...XML from step 1...",   ← paste full XML here
+          addToProject=true
+        )
+     → Writes file to K:\AosService\PackagesLocalDirectory\AslCore\AslCore\AxTable\...
+     → Adds entry to .rnrproj for VS2022
+
+Same pattern applies for generate_smart_form + create_d365fo_file(objectType="form", ...).
+```
+
+
 
 **Workflow for using an existing label:**
 ```
