@@ -4,6 +4,8 @@
  * with proper formatting and structure
  */
 
+import { FormPatternTemplates, FormPattern } from './formPatternTemplates.js';
+
 export interface TableFieldSpec {
   name: string;
   edt?: string;
@@ -167,73 +169,67 @@ export class SmartXmlBuilder {
    * Build AxForm XML with datasources and controls.
    * Structure validated against real D365FO AOT XML (K:\AosService\PackagesLocalDirectory).
    */
+  /**
+   * Build AxForm XML by delegating to the pattern-specific template builder.
+   *
+   * Each D365FO form pattern has a pre-defined, structurally validated skeleton
+   * (ActionPane, QuickFilter, Grid style, etc.) derived from real AOT reference forms.
+   *
+   * Supported patterns: SimpleList | SimpleListDetails | DetailsMaster |
+   *   DetailsTransaction | Dialog | TableOfContents | Lookup
+   * Default: SimpleList (most common for new setup/configuration tables)
+   */
   buildFormXml(spec: {
     name: string;
     label?: string;
     caption?: string;
     dataSources: FormDataSourceSpec[];
     controls?: FormControlSpec[];
+    formPattern?: string;
+    gridFields?: string[];
+    sections?: Array<{ name: string; caption: string }>;
+    linesDsName?: string;
+    linesDsTable?: string;
   }): string {
-    const { name, label, caption, dataSources, controls } = spec;
+    const { name, label, caption, dataSources, formPattern, gridFields, sections, linesDsName, linesDsTable } = spec;
 
-    let xml = `<?xml version="1.0" encoding="utf-8"?>\n`;
-    // D365FO forms require the Microsoft.Dynamics.AX.Metadata.V6 default namespace
-    xml += `<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">\n`;
-    xml += `\t<Name>${name}</Name>\n`;
-
-    // <SourceCode> with classDeclaration method is required by D365FO forms
-    xml += `\t<SourceCode>\n`;
-    xml += `\t\t<Methods xmlns="">\n`;
-    xml += `\t\t\t<Method>\n`;
-    xml += `\t\t\t\t<Name>classDeclaration</Name>\n`;
-    xml += `\t\t\t\t<Source><!\[CDATA[\n    [Form]\n    public class ${name} extends FormRun\n    {\n    }\n]]></Source>\n`;
-    xml += `\t\t\t</Method>\n`;
-    xml += `\t\t</Methods>\n`;
-    // These xmlns="" sections track form-level code overrides
-    xml += `\t\t<DataSources xmlns="" />\n`;
-    xml += `\t\t<DataControls xmlns="" />\n`;
-    xml += `\t\t<Members xmlns="" />\n`;
-    xml += `\t</SourceCode>\n`;
-
-    if (label) {
-      xml += `\t<Label>${this.escapeXml(label)}</Label>\n`;
-    }
-
-    // DataSources (outside SourceCode — form runtime datasources)
-    if (dataSources.length > 0) {
-      xml += `\t<DataSources>\n`;
-      for (const ds of dataSources) {
-        xml += this.buildFormDataSource(ds);
-      }
-      xml += `\t</DataSources>\n`;
-    } else {
-      xml += `\t<DataSources />\n`;
-    }
-
-    // Design
     const primaryDs = dataSources[0];
-    xml += `\t<Design>\n`;
-    if (caption || label) {
-      xml += `\t\t<Caption xmlns="">${this.escapeXml(caption || label || name)}</Caption>\n`;
-    }
-    if (primaryDs) {
-      xml += `\t\t<DataSource xmlns="">${primaryDs.name}</DataSource>\n`;
-      xml += `\t\t<Pattern xmlns="">SimpleList</Pattern>\n`;
-      xml += `\t\t<PatternVersion xmlns="">1.1</PatternVersion>\n`;
-      xml += `\t\t<Style xmlns="">SimpleList</Style>\n`;
-    }
-    xml += `\t\t<Controls xmlns="">\n`;
-    if (controls && controls.length > 0) {
-      for (const control of controls) {
-        xml += this.buildFormControl(control, 3);
-      }
-    }
-    xml += `\t\t</Controls>\n`;
-    xml += `\t</Design>\n`;
+    const pattern: FormPattern = formPattern
+      ? FormPatternTemplates.normalizePattern(formPattern)
+      : 'SimpleList';
 
-    xml += `\t<Parts />\n`;
-    xml += `</AxForm>\n`;
-    return xml;
+    return FormPatternTemplates.build(pattern, {
+      formName: name,
+      dsName: primaryDs?.name,
+      dsTable: primaryDs?.table,
+      caption: caption || label,
+      gridFields: gridFields || [],
+      sections,
+      linesDsName,
+      linesDsTable,
+    });
+  }
+
+  /**
+   * Build AxForm XML for a specific pattern directly.
+   * Convenience wrapper exposing FormPatternTemplates to callers that already
+   * know the pattern (e.g. generateSmartForm.ts).
+   */
+  buildFormXmlForPattern(
+    pattern: FormPattern,
+    formName: string,
+    dsName?: string,
+    dsTable?: string,
+    caption?: string,
+    gridFields?: string[],
+    sections?: Array<{ name: string; caption: string }>,
+    linesDsName?: string,
+    linesDsTable?: string,
+  ): string {
+    return FormPatternTemplates.build(pattern, {
+      formName, dsName, dsTable, caption, gridFields: gridFields || [],
+      sections, linesDsName, linesDsTable,
+    });
   }
 
   /**
@@ -350,19 +346,20 @@ export class SmartXmlBuilder {
    * Build form datasource XML node.
    * D365FO: <AxFormDataSource xmlns=""> required to override default form namespace.
    */
-  private buildFormDataSource(ds: FormDataSourceSpec): string {
+  public buildFormDataSource(ds: FormDataSourceSpec): string {
     const { name, table, allowEdit, allowCreate, allowDelete } = ds;
 
     // xmlns="" resets the default namespace (AxForm root has xmlns="Microsoft.Dynamics.AX.Metadata.V6")
     let xml = `\t\t<AxFormDataSource xmlns="">\n`;
     xml += `\t\t\t<Name>${name}</Name>\n`;
     xml += `\t\t\t<Table>${table}</Table>\n`;
-    if (allowEdit === false) xml += `\t\t\t<AllowEdit>No</AllowEdit>\n`;
-    if (allowCreate === false) xml += `\t\t\t<AllowCreate>No</AllowCreate>\n`;
-    if (allowDelete === false) xml += `\t\t\t<AllowDelete>No</AllowDelete>\n`;
-    // Empty <Fields /> means all table fields are available in the datasource
+    // Empty <Fields /> = all table fields available in the datasource (explicit list not required)
     xml += `\t\t\t<Fields />\n`;
     xml += `\t\t\t<ReferencedDataSources />\n`;
+    // AllowCreate/Edit/Delete come AFTER ReferencedDataSources — matches real D365FO AOT XML order
+    if (allowCreate === false) xml += `\t\t\t<AllowCreate>No</AllowCreate>\n`;
+    if (allowEdit === false)   xml += `\t\t\t<AllowEdit>No</AllowEdit>\n`;
+    if (allowDelete === false)  xml += `\t\t\t<AllowDelete>No</AllowDelete>\n`;
     xml += `\t\t\t<DataSourceLinks />\n`;
     xml += `\t\t\t<DerivedDataSources />\n`;
     xml += `\t\t</AxFormDataSource>\n`;
@@ -374,7 +371,7 @@ export class SmartXmlBuilder {
    * D365FO: <AxFormControl xmlns="" i:type="AxFormStringControl"> with required Type and
    * FormControlExtension properties. xmlns="" resets default form namespace.
    */
-  private buildFormControl(control: FormControlSpec, indentLevel: number): string {
+  public buildFormControl(control: FormControlSpec, indentLevel: number): string {
     const { name, type, properties, children } = control;
     const indent = '\t'.repeat(indentLevel);
     const i1 = indent + '\t';
@@ -449,11 +446,13 @@ export class SmartXmlBuilder {
    */
   buildGridControl(name: string, dataSource: string, fields: string[]): FormControlSpec {
     const gridChildren: FormControlSpec[] = fields.map(field => ({
-      name: field,
+      // Prefix with dataSource to avoid name collisions when multiple grids exist
+      name: `${dataSource}_${field}`,
       type: 'String',
       properties: {
-        DataSource: dataSource,
+        // DataField MUST come before DataSource — matches real D365FO AOT XML element order
         DataField: field,
+        DataSource: dataSource,
       },
     }));
 
@@ -462,8 +461,14 @@ export class SmartXmlBuilder {
       type: 'Grid',
       properties: {
         DataSource: dataSource,
+        // Tabular style is standard for SimpleList grids (verified from real AOT forms)
+        Style: 'Tabular',
       },
       children: gridChildren,
     };
   }
 }
+
+// Re-export pattern types so callers can import from this module without needing a separate import
+export { FormPatternTemplates } from './formPatternTemplates.js';
+export type { FormPattern, FormTemplateOptions } from './formPatternTemplates.js';

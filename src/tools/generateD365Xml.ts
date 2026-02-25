@@ -155,11 +155,10 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
    */
   static generateAxFormXml(
     formName: string,
-    properties?: Record<string, any>
+    _properties?: Record<string, any>
   ): string {
-    const label = properties?.label || formName;
-
     // D365FO forms require xmlns="Microsoft.Dynamics.AX.Metadata.V6" and SourceCode first
+    // NOTE: <Label> is intentionally absent — AxForm files do not carry a top-level <Label>.
     return `<?xml version="1.0" encoding="utf-8"?>
 <AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
 \t<Name>${formName}</Name>
@@ -179,7 +178,6 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
 \t\t<DataControls xmlns="" />
 \t\t<Members xmlns="" />
 \t</SourceCode>
-\t<Label>${label}</Label>
 \t<DataSources />
 \t<Design>
 \t\t<Controls xmlns="" />
