@@ -1097,8 +1097,8 @@ Renames the label in ALL of the following places:
 ⚠️ Run with dryRun=true first to preview the impact before committing!
 
 Examples:
-- rename_label(oldLabelId="OldName", newLabelId="NewName", labelFileId="AslCore", model="AslCore", dryRun=true)
-- rename_label(oldLabelId="OldName", newLabelId="NewName", labelFileId="AslCore", model="AslCore")`,
+- rename_label(oldLabelId="OldName", newLabelId="NewName", labelFileId="MyModel", model="MyModel", dryRun=true)
+- rename_label(oldLabelId="OldName", newLabelId="NewName", labelFileId="MyModel", model="MyModel")`,
           inputSchema: {
             type: 'object',
             properties: {
@@ -1112,7 +1112,7 @@ Examples:
               },
               labelFileId: {
                 type: 'string',
-                description: 'Label file ID that owns the label (e.g. MyModel, AslCore)',
+                description: 'Label file ID that owns the label (e.g. MyModel, MyPackage)',
               },
               model: {
                 type: 'string',

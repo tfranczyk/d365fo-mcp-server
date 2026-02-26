@@ -71,7 +71,7 @@ just ask in plain English.
 | **search_labels** | Full-text search across all AxLabelFile labels | "Find a label for 'customer account'" |
 | **get_label_info** | All translations for a label ID, or list label files | "Show all translations of MyFeature in MyModel" |
 | **create_label** | Add a new label to all language files in a model | "Create label MyNewField in MyModel" |
-| **rename_label** | Rename a label ID in .label.txt, X++ source and XML metadata | "Rename label OldName to NewName in AslCore" |
+| **rename_label** | Rename a label ID in .label.txt, X++ source and XML metadata | "Rename label OldName to NewName in MyModel" |
 
 ---
 
@@ -458,7 +458,7 @@ all three locations atomically:
 **Parameters:**
 - `oldLabelId` — current label ID (required)
 - `newLabelId` — new label ID, alphanumeric (required)
-- `labelFileId` — label file that owns the label, e.g. `AslCore` (required)
+- `labelFileId` — label file that owns the label, e.g. `MyModel` (required)
 - `model` — model name (required)
 - `packageName` — package name; auto-resolved if omitted
 - `packagePath` — override base path; auto-detected if omitted
@@ -468,7 +468,7 @@ all three locations atomically:
 
 **Examples:**
 ```
-Rename label OldFieldName to NewFieldName in label file AslCore, model AslCore (dry run first)
+Rename label OldFieldName to NewFieldName in label file MyModel, model MyModel (dry run first)
 Rename label MyOldCaption to MyNewCaption in MyModel
 ```
 
