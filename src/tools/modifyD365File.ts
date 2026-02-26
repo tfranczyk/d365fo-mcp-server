@@ -243,6 +243,10 @@ async function findD365FileOnDisk(
 
   const configManager = getConfigManager();
 
+  // Ensure .mcp.json is loaded — lazy init so this works even when
+  // server startup did not call initializeConfig() before this tool ran.
+  await configManager.ensureLoaded();
+
   // Resolve model name (same priority order as generateSmartTable):
   //   1. Explicit arg (skip placeholders like "any")
   //   2. .mcp.json context (modelName field or last segment of workspacePath)

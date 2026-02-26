@@ -1179,8 +1179,9 @@ export class XppSymbolIndex {
           model,
         });
 
-        // Add extended EDT metadata to new table
-        if (edtData.extends || edtData.enumType || edtData.referenceTable) {
+        // Add extended EDT metadata to new table — always insert when any property is present
+        if (edtData.extends || edtData.enumType || edtData.referenceTable ||
+            edtData.stringSize || edtData.displayLength || edtData.label) {
           const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO edt_metadata (
               edt_name, extends, enum_type, reference_table, relation_type,
