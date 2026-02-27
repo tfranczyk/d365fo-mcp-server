@@ -1217,38 +1217,38 @@ ${defaultParamGroupXml}
 
     // 13. Fix <ColSpan>/<RowSpan> as direct children of <TablixCell>.
     //     SSRS schema only allows CellContents, DataElementName, DataElementOutput
-    //     as children of <TablixCell>. ColSpan and RowSpan must be children of
-    //     <CellContents> (placed after the report item, before </CellContents>).
-    //     AI generators often emit:
+    //     as direct children of <TablixCell>. ColSpan/RowSpan must be INSIDE
+    //     <CellContents> (after the report item, before </CellContents>).
+    //     AI generators emit them BEFORE or AFTER the <CellContents> block:
     //       <TablixCell><ColSpan>2</ColSpan><CellContents>...</CellContents></TablixCell>
-    //     which causes "invalid child element 'ColSpan'" deserialization error.
+    //       <TablixCell><CellContents>...</CellContents><ColSpan>2</ColSpan></TablixCell>
+    //     Both cause "invalid child element 'ColSpan'" deserialization error.
     xml = xml.replace(/(<Text><!\[CDATA\[)([\s\S]*?)(\]\]><\/Text>)/, (_whole, open, rdl, close) => {
       const fixedRdl = rdl.replace(
         /(<TablixCell>)([\s\S]*?)(<\/TablixCell>)/g,
         (tcMatch: string, tcOpen: string, tcContent: string, tcClose: string) => {
-          // Extract any ColSpan/RowSpan that are direct children of TablixCell
-          // (not already inside CellContents)
-          const spanPattern = /\s*<(ColSpan|RowSpan)>([\s\S]*?)<\/\1>/g;
-          let spans = '';
-          // Check if any span tags exist outside of CellContents
-          const beforeCellContents = tcContent.split('<CellContents')[0];
-          if (!spanPattern.test(beforeCellContents)) return tcMatch;
+          // Use indexOf to split tcContent into: beforeCC / ccBlock / afterCC.
+          // This reliably handles spans placed either before OR after CellContents.
+          const ccStart = tcContent.indexOf('<CellContents');
+          const ccEnd   = tcContent.indexOf('</CellContents>');
+          if (ccStart === -1 || ccEnd === -1) return tcMatch;
 
-          // Re-run to collect the spans
-          const spanRe = /\s*<(ColSpan|RowSpan)>([\s\S]*?)<\/\1>/g;
-          let m: RegExpExecArray | null;
-          const beforePart = tcContent.split('<CellContents')[0];
-          const restPart = tcContent.includes('<CellContents') ? '<CellContents' + tcContent.split('<CellContents').slice(1).join('<CellContents') : tcContent;
-          let cleanBefore = beforePart;
-          while ((m = spanRe.exec(beforePart)) !== null) {
-            spans += m[0].trimStart();
-            cleanBefore = cleanBefore.replace(m[0], '');
-          }
+          const beforeCC = tcContent.substring(0, ccStart);
+          const ccBlock  = tcContent.substring(ccStart, ccEnd + '</CellContents>'.length);
+          const afterCC  = tcContent.substring(ccEnd + '</CellContents>'.length);
+
+          // Collect ColSpan/RowSpan from anywhere outside CellContents
+          const spanTagRe = () => /[ \t\r\n]*<(ColSpan|RowSpan)>[^<]*<\/\1>/g;
+          let spans = '';
+          const cleanBefore = beforeCC.replace(spanTagRe(), (m) => { spans += '\n' + m.trim(); return ''; });
+          const cleanAfter  = afterCC.replace( spanTagRe(), (m) => { spans += '\n' + m.trim(); return ''; });
+
           if (!spans) return tcMatch;
-          // Move span(s) inside CellContents, just before </CellContents>
-          const fixedContent = cleanBefore + restPart.replace('</CellContents>', `${spans}\n</CellContents>`);
+
+          // Move collected spans inside CellContents, just before </CellContents>
+          const fixedCC = ccBlock.replace('</CellContents>', `${spans}\n</CellContents>`);
           console.error('[sanitizeReportXml] Moved <ColSpan>/<RowSpan> from <TablixCell> into <CellContents> in embedded RDL');
-          return tcOpen + fixedContent + tcClose;
+          return tcOpen + cleanBefore + fixedCC + cleanAfter + tcClose;
         }
       );
       if (fixedRdl === rdl) return _whole;

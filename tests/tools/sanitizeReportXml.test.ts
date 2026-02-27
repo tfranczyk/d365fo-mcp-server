@@ -581,4 +581,67 @@ describe('XmlTemplateGenerator.sanitizeReportXml()', () => {
       expect(twice).toBe(once);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────
+  // Fix 13 — ColSpan/RowSpan as direct children of TablixCell
+  // ─────────────────────────────────────────────────────────────
+  describe('fix 13: ColSpan/RowSpan as direct child of TablixCell', () => {
+    const NS = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition';
+    const wrap = (rdl: string) =>
+      `<AxReport xmlns="Microsoft.Dynamics.AX.Metadata.V2"><Name>R</Name><DataMethods /><Designs><AxReportDesign xmlns="" i:type="AxReportPrecisionDesign"><Name>Report</Name><Text><![CDATA[${rdl}]]></Text></AxReportDesign></Designs></AxReport>`;
+
+    const tbxInner = `<Paragraphs><Paragraph><TextRuns><TextRun><Value>X</Value><Style/></TextRun></TextRuns><Style/></Paragraph></Paragraphs><Height>0.25in</Height>`;
+    const cc       = (tbx: string) => `<CellContents><Textbox Name="T1">${tbx}</Textbox></CellContents>`;
+
+    it('moves <ColSpan> from before <CellContents> into <CellContents>', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell><ColSpan>2</ColSpan>${cc(tbxInner)}</TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      // ColSpan must be inside CellContents now
+      expect(result).toContain('<CellContents>');
+      expect(result).toContain('<ColSpan>2</ColSpan>');
+      // Must not be a DIRECT child of TablixCell (only whitespace allowed between them)
+      expect(result).not.toMatch(/<TablixCell>\s*<ColSpan>/);
+      expect(result).toMatch(/<CellContents>[\s\S]*?<ColSpan>2<\/ColSpan>[\s\S]*?<\/CellContents>/);
+    });
+
+    it('moves <ColSpan> from AFTER </CellContents> into <CellContents>', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell>${cc(tbxInner)}<ColSpan>3</ColSpan></TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      expect(result).not.toMatch(/<\/CellContents>[\s\S]*?<ColSpan>/);
+      expect(result).toMatch(/<CellContents>[\s\S]*?<ColSpan>3<\/ColSpan>[\s\S]*?<\/CellContents>/);
+    });
+
+    it('moves <RowSpan> from before <CellContents> into <CellContents>', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell><RowSpan>2</RowSpan>${cc(tbxInner)}</TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      expect(result).toMatch(/<CellContents>[\s\S]*?<RowSpan>2<\/RowSpan>[\s\S]*?<\/CellContents>/);
+      expect(result).not.toMatch(/<TablixCell>\s*<RowSpan>/);
+    });
+
+    it('moves both <ColSpan> and <RowSpan> from before <CellContents>', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell><ColSpan>2</ColSpan><RowSpan>3</RowSpan>${cc(tbxInner)}</TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      expect(result).toMatch(/<CellContents>[\s\S]*?<ColSpan>2<\/ColSpan>[\s\S]*?<\/CellContents>/);
+      expect(result).toMatch(/<CellContents>[\s\S]*?<RowSpan>3<\/RowSpan>[\s\S]*?<\/CellContents>/);
+    });
+
+    it('does not modify TablixCell where ColSpan is already inside CellContents', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell><CellContents><Textbox Name="T1">${tbxInner}</Textbox><ColSpan>2</ColSpan></CellContents></TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      expect(result).toBe(xml);
+    });
+
+    it('fix 13 is idempotent', () => {
+      const rdl = `<?xml version="1.0"?><Report xmlns="${NS}"><TablixCell><ColSpan>2</ColSpan>${cc(tbxInner)}</TablixCell></Report>`;
+      const xml = wrap(rdl);
+      const once  = XmlTemplateGenerator.sanitizeReportXml(xml);
+      const twice = XmlTemplateGenerator.sanitizeReportXml(once);
+      expect(twice).toBe(once);
+    });
+  });
 });
