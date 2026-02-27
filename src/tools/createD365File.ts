@@ -448,25 +448,25 @@ ${dataSourceXml}\t\t<Pattern xmlns="">${pattern}</Pattern>
    *   designName    - AxReportDesign name               (default: 'Report')
    *   caption       - Design caption label ref           (e.g. '@MyModel:MyLabel')
    *   style         - Design style template             (e.g. 'TableStyleTemplate')
-   *   fields        - Array of { name, alias?, dataType?, caption? } → AxReportDataSetField
-   *   rdlContent    - Full RDL XML string to embed in <Text><![CDATA[...]]></Text>
+   *   aotQuery      - AOT query name for DynamicParameter (e.g. 'SalesTable')
+   *   fields        - Array of { name, alias?, dataType?, caption?, disableAutoCreate? } → AxReportDataSetField
+   *   datasets      - Array of { name, dpClassName, tmpTableName, fields?, aotQuery? } for multi-dataset reports
+   *   rdlContent    - Full RDL XML string to embed (auto-generated from fields when omitted)
    *
-   * AOT structure generated (matches VS Designer requirements):
+   * AOT structure generated (mirrors real D365FO reports like AslReports_CashOrder_CZ):
    *   <AxReport xmlns="Microsoft.Dynamics.AX.Metadata.V2">
    *     <DataMethods />
    *     <DataSets>
-   *       <AxReportDataSet xmlns="">
+   *       <AxReportDataSet xmlns="">           ← one per dataset
    *         <Fields>…</Fields>
-   *         <Parameters>   ← AX system params mapped into dataset query
+   *         <Parameters>   ← 6 AX system params + {DPCLASS}_DynamicParameter
    *       </AxReportDataSet>
    *     </DataSets>
-   *     <DefaultParameterGroup>   ← root-level param definitions (Designer "Parameters" node)
-   *       <ReportParameterBases>
-   *         <AxReportParameterBase i:type="AxReportParameter">…
-   *       </ReportParameterBases>
-   *     </DefaultParameterGroup>
+   *     <DefaultParameterGroup>               ← 6 AX params + DynamicParameter (with AOTQuery+DataType)
    *     <Designs>
-   *       <AxReportDesign xmlns="" i:type="AxReportPrecisionDesign">   ← both attrs required
+   *       <AxReportDesign xmlns="" i:type="AxReportPrecisionDesign">
+   *         <Text><![CDATA[…RDL…]]></Text>   ← 2016 schema with DataSources/DataSets/ReportParameters
+   *         <DisableIndividualTransformation><Name>…</Name></DisableIndividualTransformation>
    *     </Designs>
    *   </AxReport>
    */
@@ -474,37 +474,83 @@ ${dataSourceXml}\t\t<Pattern xmlns="">${pattern}</Pattern>
     reportName: string,
     properties?: Record<string, any>
   ): string {
-    const tmpTableName = properties?.tmpTableName || `${reportName}Tmp`;
-    const dpClassName  = properties?.dpClassName  || `${reportName}DP`;
-    const datasetName  = properties?.datasetName  || tmpTableName;
-    const designName   = properties?.designName   || 'Report';
+    // ── Type helpers ─────────────────────────────────────────────────────────
+    type FieldDef = {
+      name: string; alias?: string; dataType?: string;
+      caption?: string; disableAutoCreate?: boolean;
+    };
+    type DatasetDef = {
+      name: string; dpClassName: string; tmpTableName: string;
+      fields?: FieldDef[]; aotQuery?: string;
+    };
 
-    // --- Fields block ---
-    type FieldDef = { name: string; alias?: string; dataType?: string; caption?: string };
-    const fields = properties?.fields as FieldDef[] | undefined;
-    let fieldsXml: string;
-    if (fields && fields.length > 0) {
-      const entries = fields.map(f => {
-        const alias   = f.alias    || `${tmpTableName}.1.${f.name}`;
-        const capLine = f.caption  ? `\n\t\t\t\t<Caption>${f.caption}</Caption>`   : '';
-        const dtLine  = f.dataType ? `\n\t\t\t\t<DataType>${f.dataType}</DataType>` : '';
-        return [
-          `\t\t\t<AxReportDataSetField>`,
-          `\t\t\t\t<Name>${f.name}</Name>`,
-          `\t\t\t\t<Alias>${alias}</Alias>${capLine}${dtLine}`,
-          `\t\t\t\t<DisplayWidth>Auto</DisplayWidth>`,
-          `\t\t\t\t<UserDefined>false</UserDefined>`,
-          `\t\t\t</AxReportDataSetField>`,
-        ].join('\n');
-      });
-      fieldsXml = `\t\t\t<Fields>\n${entries.join('\n')}\n\t\t\t</Fields>`;
+    // ── Resolve datasets (multi-dataset array OR single-dataset shorthand) ──
+    let datasets: DatasetDef[];
+    if (properties?.datasets && Array.isArray(properties.datasets)) {
+      datasets = properties.datasets as DatasetDef[];
     } else {
-      fieldsXml = `\t\t\t<Fields />`;
+      const tmpTableName = properties?.tmpTableName || `${reportName}Tmp`;
+      const dpClassName  = properties?.dpClassName  || `${reportName}DP`;
+      const datasetName  = properties?.datasetName  || tmpTableName;
+      datasets = [{
+        name:         datasetName,
+        dpClassName,
+        tmpTableName,
+        fields:       properties?.fields    as FieldDef[] | undefined,
+        aotQuery:     properties?.aotQuery  as string     | undefined,
+      }];
     }
+    const designName = properties?.designName || 'Report';
 
-    // --- Dataset parameters block (AX system params mapped to dataset query) ---
-    // These are required for the VS Designer to show a Parameters node under the dataset.
-    const datasetParamsXml = `\t\t\t<Parameters>
+    // ── RDL .NET type mapping ──
+    const rdlType = (dt?: string): string => {
+      switch (dt) {
+        case 'System.Double':   return 'System.Double';
+        case 'System.Int32':    return 'System.Int32';
+        case 'System.Int64':    return 'System.Int64';
+        case 'System.DateTime': return 'System.DateTime';
+        case 'System.Byte[]':   return 'System.Byte[]';
+        default:                return 'System.String';
+      }
+    };
+
+    // ── UUID helper ──
+    const uuid = (): string =>
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+
+    // ── Build one AxReportDataSet XML entry ──
+    const buildDatasetXml = (ds: DatasetDef): string => {
+      const dpParamName = `${ds.dpClassName.toUpperCase()}_DynamicParameter`;
+      let fieldsXml: string;
+      if (ds.fields && ds.fields.length > 0) {
+        const entries = ds.fields.map(f => {
+          const alias      = f.alias    || `${ds.tmpTableName}.1.${f.name}`;
+          const capLine    = f.caption          ? `\n\t\t\t\t<Caption>${f.caption}</Caption>`                                 : '';
+          const dtLine     = f.dataType         ? `\n\t\t\t\t<DataType>${f.dataType}</DataType>`                              : '';
+          const disableLine = f.disableAutoCreate ? `\n\t\t\t\t<DisableAutoCreateInDataRegion>true</DisableAutoCreateInDataRegion>` : '';
+          return [
+            `\t\t\t<AxReportDataSetField>`,
+            `\t\t\t\t<Name>${f.name}</Name>`,
+            `\t\t\t\t<Alias>${alias}</Alias>${capLine}${dtLine}${disableLine}`,
+            `\t\t\t\t<DisplayWidth>Auto</DisplayWidth>`,
+            `\t\t\t\t<UserDefined>false</UserDefined>`,
+            `\t\t\t</AxReportDataSetField>`,
+          ].join('\n');
+        });
+        fieldsXml = `\t\t\t<Fields>\n${entries.join('\n')}\n\t\t\t</Fields>`;
+      } else {
+        fieldsXml = `\t\t\t<Fields />`;
+      }
+      return `\t\t<AxReportDataSet xmlns="">
+\t\t\t<Name>${ds.name}</Name>
+\t\t\t<DataSourceType>ReportDataProvider</DataSourceType>
+\t\t\t<Query>SELECT * FROM ${ds.dpClassName}.${ds.tmpTableName}</Query>
+\t\t\t<FieldGroups />
+${fieldsXml}
+\t\t\t<Parameters>
 \t\t\t\t<AxReportDataSetParameter>
 \t\t\t\t\t<Name>AX_PartitionKey</Name>
 \t\t\t\t\t<Alias>AX_PartitionKey</Alias>
@@ -541,9 +587,23 @@ ${dataSourceXml}\t\t<Pattern xmlns="">${pattern}</Pattern>
 \t\t\t\t\t<DataType>System.String</DataType>
 \t\t\t\t\t<Parameter>AX_RdpPreProcessedId</Parameter>
 \t\t\t\t</AxReportDataSetParameter>
-\t\t\t</Parameters>`;
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>${dpParamName}</Name>
+\t\t\t\t\t<Alias>${dpParamName}</Alias>
+\t\t\t\t\t<DataType>Microsoft.Dynamics.AX.Framework.Services.Client.QueryMetadata</DataType>
+\t\t\t\t\t<Parameter>${dpParamName}</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t</Parameters>
+\t\t</AxReportDataSet>`;
+    };
 
-    // --- DefaultParameterGroup block (root-level — "Parameters" node in VS Designer) ---
+    const datasetsXml = datasets.map(buildDatasetXml).join('\n');
+
+    // ── DefaultParameterGroup (uses first dataset's DP for DynamicParameter) ──
+    const firstDs      = datasets[0];
+    const dpParamName  = `${firstDs.dpClassName.toUpperCase()}_DynamicParameter`;
+    const aotQueryLine = firstDs.aotQuery ? `\n\t\t\t\t<AOTQuery>${firstDs.aotQuery}</AOTQuery>` : '';
+
     const defaultParamGroupXml = `\t<DefaultParameterGroup>
 \t\t<Name xmlns="">Parameters</Name>
 \t\t<ReportParameterBases xmlns="">
@@ -599,37 +659,171 @@ ${dataSourceXml}\t\t<Pattern xmlns="">${pattern}</Pattern>
 \t\t\t\t<DefaultValue />
 \t\t\t\t<Values />
 \t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>${dpParamName}</Name>${aotQueryLine}
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<DataType>Microsoft.Dynamics.AX.Framework.Services.Client.QueryMetadata</DataType>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
 \t\t</ReportParameterBases>
 \t</DefaultParameterGroup>`;
 
-    // --- Design block ---
+    // ── Auto-generate RDL skeleton (2016 namespace, mirrors real D365FO reports) ──
+    const buildRdlSkeleton = (): string => {
+      const ns2016 = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition';
+      const nsRd   = 'http://schemas.microsoft.com/SQLServer/reporting/reportdesigner';
+
+      // DataSources block — single shared AX data source
+      const rdlDataSourcesXml =
+`  <DataSources>
+    <DataSource Name="AutoGen__ReportDataProvider">
+      <Transaction>true</Transaction>
+      <ConnectionProperties>
+        <DataProvider>AXREPORTDATAPROVIDER</DataProvider>
+        <ConnectString />
+        <IntegratedSecurity>true</IntegratedSecurity>
+      </ConnectionProperties>
+      <rd:DataSourceID>${uuid()}</rd:DataSourceID>
+    </DataSource>
+  </DataSources>`;
+
+      // Build one RDL DataSet per AxReportDataSet
+      const buildRdlDataset = (ds: DatasetDef): string => {
+        const dsDpParam   = `${ds.dpClassName.toUpperCase()}_DynamicParameter`;
+        const paramNames  = [
+          'AX_PartitionKey', 'AX_CompanyName', 'AX_UserContext',
+          'AX_RenderingCulture', 'AX_ReportContext', 'AX_RdpPreProcessedId',
+          dsDpParam,
+        ];
+        const queryParams = paramNames
+          .map(p =>
+            `          <QueryParameter Name="${p}">\n            <Value>=Parameters!${p}.Value</Value>\n          </QueryParameter>`)
+          .join('\n');
+
+        let rdlFields = '';
+        if (ds.fields && ds.fields.length > 0) {
+          const flines = ds.fields.map(f => {
+            const alias = f.alias || `${ds.tmpTableName}.1.${f.name}`;
+            return `        <Field Name="${f.name}">\n          <DataField>${alias}</DataField>\n          <rd:TypeName>${rdlType(f.dataType)}</rd:TypeName>\n        </Field>`;
+          });
+          rdlFields = `      <Fields>\n${flines.join('\n')}\n      </Fields>\n`;
+        }
+        return `    <DataSet Name="${ds.name}">
+      <Query>
+        <DataSourceName>AutoGen__ReportDataProvider</DataSourceName>
+        <QueryParameters>
+${queryParams}
+        </QueryParameters>
+        <CommandText>SELECT * FROM ${ds.dpClassName}.${ds.tmpTableName}</CommandText>
+        <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
+      </Query>
+${rdlFields}      <rd:DataSetInfo>
+        <rd:DataSetName>${ds.name}</rd:DataSetName>
+        <rd:TableName>Fields</rd:TableName>
+        <rd:TableAdapterFillMethod>Fill</rd:TableAdapterFillMethod>
+        <rd:TableAdapterGetDataMethod>GetData</rd:TableAdapterGetDataMethod>
+        <rd:TableAdapterName>FieldsTableAdapter</rd:TableAdapterName>
+      </rd:DataSetInfo>
+    </DataSet>`;
+      };
+
+      const rdlDatasetsXml = `  <DataSets>\n${datasets.map(buildRdlDataset).join('\n')}\n  </DataSets>`;
+
+      // ReportParameters — 6 AX system params + DynamicParameter (all hidden)
+      const rdlParamDefs = [
+        { name: 'AX_PartitionKey',      nullable: true,  blank: true,  usedInQuery: false },
+        { name: 'AX_CompanyName',        nullable: false, blank: false, usedInQuery: false },
+        { name: 'AX_UserContext',        nullable: true,  blank: true,  usedInQuery: false },
+        { name: 'AX_RenderingCulture',   nullable: true,  blank: true,  usedInQuery: false },
+        { name: 'AX_ReportContext',       nullable: true,  blank: true,  usedInQuery: true  },
+        { name: 'AX_RdpPreProcessedId',  nullable: true,  blank: true,  usedInQuery: false },
+        { name: dpParamName,             nullable: true,  blank: true,  usedInQuery: false },
+      ];
+      const rdlParamsXml = `  <ReportParameters>\n` +
+        rdlParamDefs.map(p => {
+          const nullLine  = p.nullable     ? `\n      <Nullable>true</Nullable>`        : '';
+          const blankLine = p.blank        ? `\n      <AllowBlank>true</AllowBlank>`    : '';
+          const usedLine  = p.usedInQuery  ? `\n      <UsedInQuery>True</UsedInQuery>` : '';
+          return `    <ReportParameter Name="${p.name}">\n      <DataType>String</DataType>${nullLine}${blankLine}\n      <Prompt>${p.name}</Prompt>\n      <Hidden>true</Hidden>${usedLine}\n    </ReportParameter>`;
+        }).join('\n') + `\n  </ReportParameters>`;
+
+      // ReportParametersLayout
+      const cellDefs = rdlParamDefs
+        .map((p, i) =>
+          `        <CellDefinition>\n          <ColumnIndex>${i}</ColumnIndex>\n          <RowIndex>0</RowIndex>\n          <ParameterName>${p.name}</ParameterName>\n        </CellDefinition>`)
+        .join('\n');
+      const rdlParamLayoutXml =
+`  <ReportParametersLayout>
+    <GridLayoutDefinition>
+      <NumberOfColumns>${rdlParamDefs.length}</NumberOfColumns>
+      <NumberOfRows>1</NumberOfRows>
+      <CellDefinitions>
+${cellDefs}
+      </CellDefinitions>
+    </GridLayoutDefinition>
+  </ReportParametersLayout>`;
+
+      return `<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="${ns2016}" xmlns:rd="${nsRd}">
+  <AutoRefresh>0</AutoRefresh>
+${rdlDataSourcesXml}
+${rdlDatasetsXml}
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>1in</Height>
+        <Style>
+          <Border>
+            <Style>None</Style>
+          </Border>
+        </Style>
+      </Body>
+      <Width>7.5in</Width>
+      <Page>
+        <PageHeight>11.69in</PageHeight>
+        <PageWidth>8.27in</PageWidth>
+        <InteractiveHeight>11in</InteractiveHeight>
+        <InteractiveWidth>8.5in</InteractiveWidth>
+        <LeftMargin>0.2in</LeftMargin>
+        <TopMargin>0.2in</TopMargin>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+${rdlParamsXml}
+${rdlParamLayoutXml}
+  <Language>en-US</Language>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>${uuid()}</rd:ReportID>
+</Report>`;
+    };
+
+    // ── Design block ──
     const captionLine = properties?.caption ? `\n\t\t\t<Caption>${properties.caption}</Caption>` : '';
     const styleLine   = properties?.style   ? `\n\t\t\t<Style>${properties.style}</Style>`       : '';
     const rdlContent  = properties?.rdlContent as string | undefined;
-    const textElement = rdlContent ? `\n\t\t\t<Text><![CDATA[${rdlContent}]]></Text>` : '';
+    const rdl         = rdlContent || buildRdlSkeleton();
+    const textElement = `\n\t\t\t<Text><![CDATA[${rdl}]]></Text>`;
 
     return `<?xml version="1.0" encoding="utf-8"?>
 <AxReport xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V2">
 \t<Name>${reportName}</Name>
 \t<DataMethods />
 \t<DataSets>
-\t\t<AxReportDataSet xmlns="">
-\t\t\t<Name>${datasetName}</Name>
-\t\t\t<DataSourceType>ReportDataProvider</DataSourceType>
-\t\t\t<Query>SELECT * FROM ${dpClassName}.${tmpTableName}</Query>
-\t\t\t<FieldGroups />
-${fieldsXml}
-${datasetParamsXml}
-\t\t</AxReportDataSet>
+${datasetsXml}
 \t</DataSets>
 ${defaultParamGroupXml}
 \t<Designs>
 \t\t<AxReportDesign xmlns=""
 \t\t\t\ti:type="AxReportPrecisionDesign">
-\t\t\t<Name>${designName}</Name>${captionLine}
-\t\t\t<DataSet>${datasetName}</DataSet>${styleLine}
-\t\t\t<AutoDesignSpecs />${textElement}
-\t\t\t<DisableIndividualTransformation />
+\t\t\t<Name>${designName}</Name>${captionLine}${styleLine}${textElement}
+\t\t\t<DisableIndividualTransformation>
+\t\t\t\t<Name>DisableIndividualTransformation</Name>
+\t\t\t</DisableIndividualTransformation>
 \t\t</AxReportDesign>
 \t</Designs>
 \t<EmbeddedImages />
