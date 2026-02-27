@@ -775,6 +775,7 @@ ${rdlDatasetsXml}
   <ReportSections>
     <ReportSection>
       <Body>
+        <ReportItems />
         <Height>1in</Height>
         <Style>
           <Border>
@@ -1151,6 +1152,26 @@ ${defaultParamGroupXml}
         .replace(/<MarginRight>/g,  '<RightMargin>') .replace(/<\/MarginRight>/g,  '</RightMargin>');
       console.error('[sanitizeReportXml] Fixed wrong margin element names (MarginX → XMargin) in embedded RDL');
     }
+
+    // 10. Ensure <Body> inside embedded RDL <ReportSection> has <ReportItems /> as its first
+    //     child element.  SSRS schema requires the order: ReportItems → Height → Style.
+    //     Without <ReportItems>, VS Designer can't surface the DataSet in the Report Data panel
+    //     (it appears as if the dataset "disappeared") and may refuse to open the report.
+    xml = xml.replace(/(<Text><!\[CDATA\[)([\s\S]*?)(\]\]><\/Text>)/, (_whole, open, rdl, close) => {
+      // Match a <Body> that contains <Height> or <Style> but lacks <ReportItems>
+      // (i.e., an empty skeleton body without any report items)
+      const fixedRdl = rdl.replace(
+        /<Body>\s*\n(\s*)((?!<ReportItems)[\s\S]*?)<\/Body>/,
+        (_bodyMatch: string, indent: string, bodyContent: string) => {
+          // Only add <ReportItems /> when the body has no report items at all
+          if (bodyContent.includes('<ReportItems')) return _bodyMatch;
+          console.error('[sanitizeReportXml] Added missing <ReportItems /> as first child of <Body> in embedded RDL');
+          return `<Body>\n${indent}<ReportItems />\n${indent}${bodyContent.trimStart()}</Body>`;
+        }
+      );
+      if (fixedRdl === rdl) return _whole;
+      return open + fixedRdl + close;
+    });
 
     return xml;
   }

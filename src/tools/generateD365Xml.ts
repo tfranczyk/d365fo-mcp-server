@@ -580,6 +580,7 @@ ${rdlDatasetsXml}
   <ReportSections>
     <ReportSection>
       <Body>
+        <ReportItems />
         <Height>1in</Height>
         <Style>
           <Border>
