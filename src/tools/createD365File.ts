@@ -159,6 +159,77 @@ function fieldTypeToAxType(fieldType: string): string {
  * XML Templates for different D365FO object types
  */
 export class XmlTemplateGenerator {
+
+  /**
+   * Split X++ class source into the Declaration block (class header + field
+   * declarations) and individual method bodies, as required by D365FO XML.
+   *
+   * D365FO XML structure:
+   *   <Declaration> = class keyword + field declarations (the outer {} block)
+   *   <Methods>     = one <Method><Name/><Source/></Method> per method body
+   *
+   * AI generators often emit the entire source (header + methods) as a single
+   * string.  This helper separates them so the generated XML is correct.
+   */
+  static splitXppClassSource(fullSource: string): {
+    declaration: string;
+    methods: Array<{ name: string; source: string }>;
+  } {
+    // Find the '{' that opens the class body
+    const firstBrace = fullSource.indexOf('{');
+    if (firstBrace === -1) return { declaration: fullSource, methods: [] };
+
+    // Walk to the matching '}' that closes the class header block
+    let depth = 0;
+    let classEndIdx = -1;
+    for (let i = firstBrace; i < fullSource.length; i++) {
+      if (fullSource[i] === '{') depth++;
+      else if (fullSource[i] === '}') {
+        depth--;
+        if (depth === 0) { classEndIdx = i; break; }
+      }
+    }
+    if (classEndIdx === -1) return { declaration: fullSource, methods: [] };
+
+    const declaration = fullSource.substring(0, classEndIdx + 1);
+    const rest = fullSource.substring(classEndIdx + 1);
+    if (!rest.trim()) return { declaration, methods: [] };
+
+    // Parse each method block from the remaining source
+    const methods: Array<{ name: string; source: string }> = [];
+    let pos = 0;
+    while (pos < rest.length) {
+      const nextBrace = rest.indexOf('{', pos);
+      if (nextBrace === -1) break;
+
+      const sigText = rest.substring(pos, nextBrace);
+
+      // Find the matching '}' for this method body (depth-counting)
+      let d = 0;
+      let bodyEnd = -1;
+      for (let i = nextBrace; i < rest.length; i++) {
+        if (rest[i] === '{') d++;
+        else if (rest[i] === '}') {
+          d--;
+          if (d === 0) { bodyEnd = i; break; }
+        }
+      }
+      if (bodyEnd === -1) break;
+
+      const methodSource = rest.substring(pos, bodyEnd + 1).trim();
+
+      // Extract method name: last identifier before '(' in the signature
+      const parenIdx = sigText.lastIndexOf('(');
+      const nameMatch =
+        parenIdx !== -1 ? sigText.substring(0, parenIdx).match(/(\w+)\s*$/) : null;
+      const methodName = nameMatch ? nameMatch[1] : `method${methods.length + 1}`;
+
+      methods.push({ name: methodName, source: methodSource });
+      pos = bodyEnd + 1;
+    }
+
+    return { declaration, methods };
+  }
   /**
    * Generate AxClass XML structure
    */
@@ -167,7 +238,13 @@ export class XmlTemplateGenerator {
     sourceCode?: string,
     properties?: Record<string, any>
   ): string {
-    const declaration = sourceCode || `public class ${className}\n{\n}`;
+    const rawSource = sourceCode || `public class ${className}\n{\n}`;
+
+    // Split full X++ source into Declaration (class header + fields) and Methods.
+    // D365FO XML requires member variable declarations in <Declaration> and
+    // each method body as a separate <Method> element under <Methods>.
+    const { declaration, methods } = XmlTemplateGenerator.splitXppClassSource(rawSource);
+
     const extendsAttr = properties?.extends
       ? `\t<Extends>${properties.extends}</Extends>\n`
       : '';
@@ -179,6 +256,16 @@ export class XmlTemplateGenerator {
       ? `\t<IsAbstract>Yes</IsAbstract>\n`
       : '';
 
+    const methodsXml =
+      methods.length === 0
+        ? '\t\t<Methods />\n'
+        : `\t\t<Methods>\n${methods
+            .map(
+              m =>
+                `\t\t\t<Method>\n\t\t\t\t<Name>${m.name}</Name>\n\t\t\t\t<Source><![CDATA[\n${m.source}\n]]></Source>\n\t\t\t</Method>`
+            )
+            .join('\n')}\n\t\t</Methods>\n`;
+
     return `<?xml version="1.0" encoding="utf-8"?>
 <AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
 \t<Name>${className}</Name>
@@ -186,8 +273,7 @@ ${extendsAttr}${implementsAttr}${isFinalAttr}${isAbstractAttr}\t<SourceCode>
 \t\t<Declaration><![CDATA[
 ${declaration}
 ]]></Declaration>
-\t\t<Methods />
-\t</SourceCode>
+${methodsXml}\t</SourceCode>
 </AxClass>
 `;
   }
