@@ -11,7 +11,7 @@ import { getConfigManager } from '../utils/configManager.js';
 
 const GenerateD365XmlArgsSchema = z.object({
   objectType: z
-    .enum(['class', 'table', 'enum', 'form', 'query', 'view', 'data-entity'])
+    .enum(['class', 'table', 'enum', 'form', 'query', 'view', 'data-entity', 'report'])
     .describe('Type of D365FO object'),
   objectName: z
     .string()
@@ -248,6 +248,81 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
   }
 
   /**
+   * Generate AxReport XML skeleton.
+   *
+   * properties:
+   *   dpClassName   - Data Provider class name          (default: <ReportName>DP)
+   *   tmpTableName  - TempDB table name                 (default: <ReportName>Tmp)
+   *   datasetName   - AxReportDataSet name              (default: tmpTableName)
+   *   designName    - AxReportDesign name               (default: 'Report')
+   *   caption       - Design caption label ref           (e.g. '@MyModel:MyLabel')
+   *   style         - Design style template             (e.g. 'TableStyleTemplate')
+   *   fields        - Array of { name, alias?, dataType?, caption? } → AxReportDataSetField
+   *   rdlContent    - Full RDL XML string to embed in <Text><![CDATA[...]]></Text>
+   */
+  static generateAxReportXml(
+    reportName: string,
+    properties?: Record<string, any>
+  ): string {
+    const tmpTableName = properties?.tmpTableName || `${reportName}Tmp`;
+    const dpClassName  = properties?.dpClassName  || `${reportName}DP`;
+    const datasetName  = properties?.datasetName  || tmpTableName;
+    const designName   = properties?.designName   || 'Report';
+
+    // --- Fields block ---
+    type FieldDef = { name: string; alias?: string; dataType?: string; caption?: string };
+    const fields = properties?.fields as FieldDef[] | undefined;
+    let fieldsXml: string;
+    if (fields && fields.length > 0) {
+      const entries = fields.map(f => {
+        const alias   = f.alias    || `${tmpTableName}.1.${f.name}`;
+        const capLine = f.caption  ? `\n\t\t\t\t<Caption>${f.caption}</Caption>`   : '';
+        const dtLine  = f.dataType ? `\n\t\t\t\t<DataType>${f.dataType}</DataType>` : '';
+        return [
+          `\t\t\t<AxReportDataSetField>`,
+          `\t\t\t\t<Name>${f.name}</Name>`,
+          `\t\t\t\t<Alias>${alias}</Alias>${capLine}${dtLine}`,
+          `\t\t\t\t<DisplayWidth>Auto</DisplayWidth>`,
+          `\t\t\t\t<UserDefined>false</UserDefined>`,
+          `\t\t\t</AxReportDataSetField>`,
+        ].join('\n');
+      });
+      fieldsXml = `\t\t\t<Fields>\n${entries.join('\n')}\n\t\t\t</Fields>`;
+    } else {
+      fieldsXml = `\t\t\t<Fields />`;
+    }
+
+    // --- Design block ---
+    const captionLine = properties?.caption ? `\n\t\t\t<Caption>${properties.caption}</Caption>` : '';
+    const styleLine   = properties?.style   ? `\n\t\t\t<Style>${properties.style}</Style>`       : '';
+    const rdlContent  = properties?.rdlContent as string | undefined;
+    const textElement = rdlContent ? `\n\t\t\t<Text><!\[CDATA\[${rdlContent}\]\]></Text>` : '';
+
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxReport xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V2">
+\t<Name>${reportName}</Name>
+\t<DataMethods />
+\t<DataSets>
+\t\t<AxReportDataSet xmlns="">
+\t\t\t<Name>${datasetName}</Name>
+\t\t\t<DataSourceType>ReportDataProvider</DataSourceType>
+\t\t\t<Query>SELECT * FROM ${dpClassName}.${tmpTableName}</Query>
+\t\t\t<FieldGroups />
+${fieldsXml}
+\t\t</AxReportDataSet>
+\t</DataSets>
+\t<Designs>
+\t\t<AxReportDesign>
+\t\t\t<Name>${designName}</Name>${captionLine}
+\t\t\t<DataSet>${datasetName}</DataSet>${styleLine}
+\t\t\t<AutoDesignSpecs />${textElement}
+\t\t</AxReportDesign>
+\t</Designs>
+\t<EmbeddedImages />
+</AxReport>`;
+  }
+
+  /**
    * Main generate method
    */
   static generate(
@@ -271,6 +346,8 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
         return this.generateAxViewXml(objectName, properties);
       case 'data-entity':
         return this.generateAxDataEntityXml(objectName, properties);
+      case 'report':
+        return this.generateAxReportXml(objectName, properties);
       default:
         throw new Error(`Unsupported object type: ${objectType}`);
     }
@@ -312,6 +389,7 @@ export async function handleGenerateD365Xml(
       query: 'AxQuery',
       view: 'AxView',
       'data-entity': 'AxDataEntityView',
+      report: 'AxReport',
     };
 
     const objectFolder = objectFolderMap[args.objectType];
