@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { XmlTemplateGenerator } from '../../src/tools/createD365File';
 
-// Minimal well-formed report XML produced by the current template generator
+// Minimal well-formed report XML (matches what the current generator produces)
 const CORRECT_XML = `<?xml version="1.0" encoding="utf-8"?>
 <AxReport xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V2">
 \t<Name>MyReport</Name>
@@ -25,7 +25,12 @@ const CORRECT_XML = `<?xml version="1.0" encoding="utf-8"?>
 \t\t\t<Name>MyReportTmp</Name>
 \t\t</AxReportDataSet>
 \t</DataSets>
-\t<Designs />
+\t<Designs>
+\t\t<AxReportDesign xmlns=""
+\t\t\t\ti:type="AxReportPrecisionDesign">
+\t\t\t<Name>Report</Name>
+\t\t</AxReportDesign>
+\t</Designs>
 \t<EmbeddedImages />
 </AxReport>`;
 
@@ -38,7 +43,11 @@ const BROKEN_XML = `<?xml version="1.0" encoding="utf-8"?>
 \t\t\t<Name>MyReportTmp</Name>
 \t\t</AxReportDataSet>
 \t</DataSets>
-\t<Designs />
+\t<Designs>
+\t\t<AxReportDesign>
+\t\t\t<Name>Report</Name>
+\t\t</AxReportDesign>
+\t</Designs>
 \t<EmbeddedImages />
 </AxReport>`;
 
@@ -155,15 +164,38 @@ describe('XmlTemplateGenerator.sanitizeReportXml()', () => {
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Full broken XML — all 4 fixes applied together
+  // Fix 5 — <AxReportDesign> xmlns="" and i:type attributes
+  // ─────────────────────────────────────────────────────────────
+  describe('fix 5: <AxReportDesign> attributes', () => {
+    it('should add xmlns="" and i:type to bare <AxReportDesign>', () => {
+      const xml = `<AxReport xmlns="Microsoft.Dynamics.AX.Metadata.V2">\n\t<Name>X</Name>\n\t<DataMethods />\n\t<Designs>\n\t\t<AxReportDesign>\n\t\t\t<Name>Report</Name>\n\t\t</AxReportDesign>\n\t</Designs>\n</AxReport>`;
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      expect(result).toContain('xmlns=""');
+      expect(result).toContain('i:type="AxReportPrecisionDesign"');
+    });
+
+    it('should not duplicate attributes when already present', () => {
+      const xml = `<AxReport xmlns="Microsoft.Dynamics.AX.Metadata.V2">\n\t<Name>X</Name>\n\t<DataMethods />\n\t<Designs>\n\t\t<AxReportDesign xmlns=""\n\t\t\t\ti:type="AxReportPrecisionDesign">\n\t\t\t<Name>Report</Name>\n\t\t</AxReportDesign>\n\t</Designs>\n</AxReport>`;
+      const result = XmlTemplateGenerator.sanitizeReportXml(xml);
+      const xnsCount = (result.match(/xmlns=""/g) || []).length;
+      // xmlns="" appears on AxReportDataSet (0 here) and AxReportDesign (1)
+      expect(xnsCount).toBeGreaterThanOrEqual(1);
+      const typeCount = (result.match(/i:type="AxReportPrecisionDesign"/g) || []).length;
+      expect(typeCount).toBe(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // Full broken XML — all 5 fixes applied together
   // ─────────────────────────────────────────────────────────────
   describe('combined fix on fully broken XML', () => {
-    it('should fix all 4 issues in BROKEN_XML in one call', () => {
+    it('should fix all 5 issues in BROKEN_XML in one call', () => {
       const result = XmlTemplateGenerator.sanitizeReportXml(BROKEN_XML);
       expect(result).toContain('xmlns="Microsoft.Dynamics.AX.Metadata.V2"');
       expect(result).toContain('<DataMethods');
       expect(result).toContain('<AxReportDataSet xmlns="">');
       expect(result.trimEnd()).toMatch(/<\/AxReport>$/);
+      expect(result).toContain('i:type="AxReportPrecisionDesign"');
     });
   });
 

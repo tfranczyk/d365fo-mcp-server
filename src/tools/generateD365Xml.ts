@@ -292,11 +292,138 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
       fieldsXml = `\t\t\t<Fields />`;
     }
 
+    // --- Dataset parameters block (AX system params mapped to dataset query) ---
+    const datasetParamsXml = `\t\t\t<Parameters>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_PartitionKey</Name>
+\t\t\t\t\t<Alias>AX_PartitionKey</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_PartitionKey</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_CompanyName</Name>
+\t\t\t\t\t<Alias>AX_CompanyName</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_CompanyName</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_UserContext</Name>
+\t\t\t\t\t<Alias>AX_UserContext</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_UserContext</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_RenderingCulture</Name>
+\t\t\t\t\t<Alias>AX_RenderingCulture</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_RenderingCulture</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_ReportContext</Name>
+\t\t\t\t\t<Alias>AX_ReportContext</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_ReportContext</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>AX_RdpPreProcessedId</Name>
+\t\t\t\t\t<Alias>AX_RdpPreProcessedId</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>AX_RdpPreProcessedId</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t\t<AxReportDataSetParameter>
+\t\t\t\t\t<Name>${datasetName}_DynamicParameter</Name>
+\t\t\t\t\t<Alias>${datasetName}_DynamicParameter</Alias>
+\t\t\t\t\t<DataType>System.String</DataType>
+\t\t\t\t\t<Parameter>${datasetName}_DynamicParameter</Parameter>
+\t\t\t\t</AxReportDataSetParameter>
+\t\t\t</Parameters>`;
+
+    // --- DefaultParameterGroup block (root-level — "Parameters" node in VS Designer) ---
+    const reportNameUpper = reportName.toUpperCase().substring(0, 20);
+    const defaultParamGroupXml = `\t<DefaultParameterGroup>
+\t\t<Name xmlns="">Parameters</Name>
+\t\t<ReportParameterBases xmlns="">
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>${datasetName}_DynamicParameter</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<DataType>Microsoft.Dynamics.AX.Framework.Services.Client.QueryMetadata</DataType>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_PartitionKey</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_CompanyName</Name>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_UserContext</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_RenderingCulture</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_ReportContext</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>AX_RdpPreProcessedId</Name>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t\t<AxReportParameterBase xmlns=""
+\t\t\t\t\ti:type="AxReportParameter">
+\t\t\t\t<Name>${reportNameUpper}_DynamicParameter</Name>
+\t\t\t\t<AOTQuery>${reportName}</AOTQuery>
+\t\t\t\t<AllowBlank>true</AllowBlank>
+\t\t\t\t<DataType>Microsoft.Dynamics.AX.Framework.Services.Client.QueryMetadata</DataType>
+\t\t\t\t<Nullable>true</Nullable>
+\t\t\t\t<UserVisibility>Hidden</UserVisibility>
+\t\t\t\t<DefaultValue />
+\t\t\t\t<Values />
+\t\t\t</AxReportParameterBase>
+\t\t</ReportParameterBases>
+\t</DefaultParameterGroup>`;
+
     // --- Design block ---
     const captionLine = properties?.caption ? `\n\t\t\t<Caption>${properties.caption}</Caption>` : '';
     const styleLine   = properties?.style   ? `\n\t\t\t<Style>${properties.style}</Style>`       : '';
     const rdlContent  = properties?.rdlContent as string | undefined;
-    const textElement = rdlContent ? `\n\t\t\t<Text><!\[CDATA\[${rdlContent}\]\]></Text>` : '';
+    const textElement = rdlContent ? `\n\t\t\t<Text><![CDATA[${rdlContent}]]></Text>` : '';
 
     return `<?xml version="1.0" encoding="utf-8"?>
 <AxReport xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V2">
@@ -309,13 +436,17 @@ ${titleField1Xml}${titleField2Xml}\t<DeleteActions />
 \t\t\t<Query>SELECT * FROM ${dpClassName}.${tmpTableName}</Query>
 \t\t\t<FieldGroups />
 ${fieldsXml}
+${datasetParamsXml}
 \t\t</AxReportDataSet>
 \t</DataSets>
+${defaultParamGroupXml}
 \t<Designs>
-\t\t<AxReportDesign>
+\t\t<AxReportDesign xmlns=""
+\t\t\t\ti:type="AxReportPrecisionDesign">
 \t\t\t<Name>${designName}</Name>${captionLine}
 \t\t\t<DataSet>${datasetName}</DataSet>${styleLine}
 \t\t\t<AutoDesignSpecs />${textElement}
+\t\t\t<DisableIndividualTransformation />
 \t\t</AxReportDesign>
 \t</Designs>
 \t<EmbeddedImages />
