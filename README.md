@@ -152,10 +152,10 @@ Host on Azure App Service so the whole team shares one instance — nobody needs
 
 | Resource | Configuration | Monthly cost |
 |----------|---------------|-------------|
-| App Service P0v3 | 1 vCPU, 4 GB RAM | ~$62 |
-| Blob Storage | 2 GB (symbols + labels DB) | ~$3 |
-| Redis Cache (optional) | Basic C0 | ~$16 |
-| **Total without Redis** | | **~$65 / month** |
+| App Service Basic B3 | 4 vCPU, 7 GB RAM | ~$52 |
+| Blob Storage | 2 GB (symbols + labels) | ~$3 |
+| Azure Managed Redis (optional) Basic B0 | 2 vCPU, 0.5 GB Cache | ~$27 |
+| **Total without Redis** | | **~$55 / month** |
 
 The database downloads from Azure Blob Storage automatically on startup.
 

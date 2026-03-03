@@ -40,10 +40,10 @@ That is all most users need. The server will:
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
-      "workspacePath":  "K:\\AosService\\PackagesLocalDirectory\\YourModel",
-      "packagePath":    "K:\\AosService\\PackagesLocalDirectory",
-      "projectPath":    "K:\\VSProjects\\MySolution\\MyProject\\MyProject.rnrproj",
-      "solutionPath":   "K:\\VSProjects\\MySolution"
+      "workspacePath": "K:\\AosService\\PackagesLocalDirectory\\YourModel",
+      "packagePath": "K:\\AosService\\PackagesLocalDirectory",
+      "projectPath": "K:\\VSProjects\\MySolution\\MyProject\\MyProject.rnrproj",
+      "solutionPath": "K:\\VSProjects\\MySolution"
     }
   }
 }
@@ -61,10 +61,10 @@ roots — one for your custom code and one for Microsoft standard packages:
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
-      "workspacePath":  "C:\\CustomXppCode\\YourPackage\\YourModel",
-      "customPackagesPath":    "C:\\CustomXppCode",
+      "workspacePath": "C:\\CustomXppCode\\YourPackage\\YourModel",
+      "customPackagesPath": "C:\\CustomXppCode",
       "microsoftPackagesPath": "C:\\Users\\...\\Dynamics365\\10.0.2428.63\\PackagesLocalDirectory",
-      "devEnvironmentType":    "auto"
+      "devEnvironmentType": "auto"
     }
   }
 }

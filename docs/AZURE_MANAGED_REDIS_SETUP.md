@@ -25,7 +25,7 @@ Azure Managed Redis with Private Link provides secure, managed Redis caching. Th
 - **DNS name**: `d365fo-mcp-cache` (or your preferred name)
 - **Location**: Same as your App Service (for best performance)
 - **Cache type** (Pricing tier — all tiers include Private Link, up to 99.999% SLA with HA, Entra ID auth):
-  - **Balanced B0** (1 GB, 2 vCores) - ~$13/month (no HA) / ~$26/month (with HA) - **Dev only**
+  - **Balanced B0** (0.5 GB, 2 vCores) - ~$13/month (no HA) / ~$26/month (with HA) - **Dev only**
   - **Balanced B1** (1 GB, 2 vCores) - ~$26/month (no HA) / ~$51/month (with HA) - Dev/test
   - **Balanced B3** (3 GB, 2 vCores) - ~$53/month (no HA) / ~$105/month (with HA) - Small cache
   - **Balanced B5** (6 GB, 2 vCores) - ~$126/month (no HA) / ~$251/month (with HA) - Medium cache
