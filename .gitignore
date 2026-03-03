@@ -65,3 +65,4 @@ docs/plans/
 # Misc
 .cache/
 deployment.zip
+.claude/settings.local.json
