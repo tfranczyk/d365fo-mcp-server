@@ -11,7 +11,15 @@ import { getConfigManager } from '../utils/configManager.js';
 
 const GenerateD365XmlArgsSchema = z.object({
   objectType: z
-    .enum(['class', 'table', 'enum', 'form', 'query', 'view', 'data-entity', 'report'])
+    .enum([
+      'class', 'table', 'enum', 'form', 'query', 'view', 'data-entity', 'report',
+      'edt', 'edt-extension',
+      'table-extension', 'form-extension', 'data-entity-extension', 'enum-extension',
+      'menu-item-display', 'menu-item-action', 'menu-item-output',
+      'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
+      'menu', 'menu-extension',
+      'security-privilege', 'security-duty', 'security-role',
+    ])
     .describe('Type of D365FO object'),
   objectName: z
     .string()
@@ -768,9 +776,177 @@ ${defaultParamGroupXml}
         return this.generateAxDataEntityXml(objectName, properties);
       case 'report':
         return this.generateAxReportXml(objectName, properties);
+      case 'edt':
+        return this.generateAxEdtXml(objectName, properties);
+      case 'table-extension':
+        return this.generateAxTableExtensionXml(objectName);
+      case 'form-extension':
+        return this.generateAxFormExtensionXml(objectName);
+      case 'edt-extension':
+        return this.generateAxSimpleExtensionXml('AxEdtExtension', objectName);
+      case 'enum-extension':
+        return this.generateAxSimpleExtensionXml('AxEnumExtension', objectName);
+      case 'data-entity-extension':
+        return this.generateAxSimpleExtensionXml('AxDataEntityViewExtension', objectName);
+      case 'menu-item-display':
+      case 'menu-item-action':
+      case 'menu-item-output':
+        return this.generateAxMenuItemXml(objectType, objectName, properties);
+      case 'menu-item-display-extension':
+        return this.generateAxSimpleExtensionXml('AxMenuItemDisplayExtension', objectName);
+      case 'menu-item-action-extension':
+        return this.generateAxSimpleExtensionXml('AxMenuItemActionExtension', objectName);
+      case 'menu-item-output-extension':
+        return this.generateAxSimpleExtensionXml('AxMenuItemOutputExtension', objectName);
+      case 'menu':
+        return this.generateAxMenuXml(objectName, properties);
+      case 'menu-extension':
+        return this.generateAxMenuExtensionXml(objectName);
+      case 'security-privilege':
+        return this.generateAxSecurityPrivilegeXml(objectName, properties);
+      case 'security-duty':
+        return this.generateAxSecurityDutyXml(objectName, properties);
+      case 'security-role':
+        return this.generateAxSecurityRoleXml(objectName, properties);
       default:
         throw new Error(`Unsupported object type: ${objectType}`);
     }
+  }
+
+  static generateAxEdtXml(name: string, properties?: Record<string, any>): string {
+    const edtType = properties?.edtType || 'AxEdtString';
+    const label = properties?.label || '@TODO:LabelId';
+    const extends_ = properties?.extends ? `\n\t<Extends>${properties.extends}</Extends>` : '';
+    const stringSize = edtType === 'AxEdtString'
+      ? `\n\t<StringSize>${properties?.stringSize ?? 30}</StringSize>` : '';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxEdt xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns=""
+\ti:type="${edtType}">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>${extends_}
+\t<ArrayElements />
+\t<Relations />
+\t<TableReferences />${stringSize}
+</AxEdt>`;
+  }
+
+  static generateAxSimpleExtensionXml(rootElement: string, name: string): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<${rootElement} xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<PropertyModifications />
+</${rootElement}>`;
+  }
+
+  static generateAxTableExtensionXml(name: string): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<FieldGroupExtensions />
+\t<FieldGroups />
+\t<FieldModifications />
+\t<Fields />
+\t<FullTextIndexes />
+\t<Indexes />
+\t<Mappings />
+\t<PropertyModifications />
+\t<RelationExtensions />
+\t<RelationModifications />
+\t<Relations />
+</AxTableExtension>`;
+  }
+
+  static generateAxFormExtensionXml(name: string): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+\t<Name>${name}</Name>
+\t<ControlModifications />
+\t<Controls />
+\t<DataSourceModifications />
+\t<DataSourceReferences />
+\t<DataSources />
+\t<Parts />
+\t<PropertyModifications />
+</AxFormExtension>`;
+  }
+
+  static generateAxMenuItemXml(
+    itemType: string,
+    name: string,
+    properties?: Record<string, any>
+  ): string {
+    const elemName = itemType === 'menu-item-action' ? 'AxMenuItemAction'
+      : itemType === 'menu-item-output' ? 'AxMenuItemOutput'
+      : 'AxMenuItemDisplay';
+    const objType = itemType === 'menu-item-action' ? 'Class'
+      : itemType === 'menu-item-output' ? 'Report'
+      : 'Form';
+    const targetObject = properties?.targetObject || properties?.object || name;
+    const label = properties?.label || '@TODO:LabelId';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<${elemName} xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>
+\t<Object>${targetObject}</Object>
+\t<ObjectType>${objType}</ObjectType>
+</${elemName}>`;
+  }
+
+  static generateAxMenuXml(name: string, properties?: Record<string, any>): string {
+    const label = properties?.label || '@TODO:LabelId';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxMenu xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V1">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>
+\t<Elements />
+</AxMenu>`;
+  }
+
+  static generateAxMenuExtensionXml(name: string): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxMenuExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V1">
+\t<Name>${name}</Name>
+\t<Customizations />
+\t<Elements />
+\t<MenuElementModifications />
+\t<PropertyModifications />
+</AxMenuExtension>`;
+  }
+
+  static generateAxSecurityPrivilegeXml(name: string, properties?: Record<string, any>): string {
+    const label = properties?.label || '@TODO:LabelId';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityPrivilege xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>
+\t<DataEntityPermissions />
+\t<DirectAccessPermissions />
+\t<EntryPoints />
+\t<FormControlOverrides />
+</AxSecurityPrivilege>`;
+  }
+
+  static generateAxSecurityDutyXml(name: string, properties?: Record<string, any>): string {
+    const label = properties?.label || '@TODO:LabelId';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityDuty xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>
+\t<Privileges />
+</AxSecurityDuty>`;
+  }
+
+  static generateAxSecurityRoleXml(name: string, properties?: Record<string, any>): string {
+    const label = properties?.label || '@TODO:LabelId';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityRole xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<Label>${label}</Label>
+\t<DirectAccessPermissions />
+\t<Duties />
+\t<Privileges />
+\t<SubRoles />
+</AxSecurityRole>`;
   }
 }
 
@@ -810,6 +986,23 @@ export async function handleGenerateD365Xml(
       view: 'AxView',
       'data-entity': 'AxDataEntityView',
       report: 'AxReport',
+      edt: 'AxEdt',
+      'edt-extension': 'AxEdtExtension',
+      'table-extension': 'AxTableExtension',
+      'form-extension': 'AxFormExtension',
+      'data-entity-extension': 'AxDataEntityViewExtension',
+      'enum-extension': 'AxEnumExtension',
+      'menu-item-display': 'AxMenuItemDisplay',
+      'menu-item-action': 'AxMenuItemAction',
+      'menu-item-output': 'AxMenuItemOutput',
+      'menu-item-display-extension': 'AxMenuItemDisplayExtension',
+      'menu-item-action-extension': 'AxMenuItemActionExtension',
+      'menu-item-output-extension': 'AxMenuItemOutputExtension',
+      menu: 'AxMenu',
+      'menu-extension': 'AxMenuExtension',
+      'security-privilege': 'AxSecurityPrivilege',
+      'security-duty': 'AxSecurityDuty',
+      'security-role': 'AxSecurityRole',
     };
 
     const objectFolder = objectFolderMap[args.objectType];
