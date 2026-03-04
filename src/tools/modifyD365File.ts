@@ -14,7 +14,15 @@ import { getConfigManager } from '../utils/configManager.js';
 import { PackageResolver } from '../utils/packageResolver.js';
 
 const ModifyD365FileArgsSchema = z.object({
-  objectType: z.enum(['class', 'table', 'form', 'enum', 'query', 'view', 'edt', 'data-entity', 'report', 'table-extension', 'class-extension', 'form-extension', 'enum-extension']).describe('Type of D365FO object'),
+  objectType: z.enum([
+    'class', 'table', 'form', 'enum', 'query', 'view', 'edt', 'data-entity', 'report',
+    'table-extension', 'class-extension', 'form-extension', 'enum-extension', 'edt-extension',
+    'data-entity-extension',
+    'menu-item-display', 'menu-item-action', 'menu-item-output',
+    'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
+    'menu', 'menu-extension',
+    'security-privilege', 'security-duty', 'security-role',
+  ]).describe('Type of D365FO object'),
   objectName: z.string().describe('Name of the object to modify'),
   operation: z.enum(['add-method', 'add-field', 'modify-field', 'rename-field', 'replace-all-fields', 'modify-property', 'remove-method', 'remove-field']).describe('Operation to perform'),
   
@@ -282,9 +290,22 @@ export async function findD365FileOnDisk(
     'data-entity': 'AxDataEntityView',
     report: 'AxReport',
     'table-extension': 'AxTableExtension',
-    'class-extension': 'AxClassExtension',
+    'class-extension': 'AxClass',
     'form-extension': 'AxFormExtension',
     'enum-extension': 'AxEnumExtension',
+    'edt-extension': 'AxEdtExtension',
+    'data-entity-extension': 'AxDataEntityViewExtension',
+    'menu-item-display': 'AxMenuItemDisplay',
+    'menu-item-action': 'AxMenuItemAction',
+    'menu-item-output': 'AxMenuItemOutput',
+    'menu-item-display-extension': 'AxMenuItemDisplayExtension',
+    'menu-item-action-extension': 'AxMenuItemActionExtension',
+    'menu-item-output-extension': 'AxMenuItemOutputExtension',
+    menu: 'AxMenu',
+    'menu-extension': 'AxMenuExtension',
+    'security-privilege': 'AxSecurityPrivilege',
+    'security-duty': 'AxSecurityDuty',
+    'security-role': 'AxSecurityRole',
   };
 
   const objectFolder = folderMap[objectType];
