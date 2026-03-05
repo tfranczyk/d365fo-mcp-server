@@ -327,6 +327,41 @@ export async function handleGenerateSmartTable(
     }
   }
 
+  // ── BP rule: BPErrorEDTNotMigrated ─────────────────────────────────────────
+  // When a field uses an EDT that carries an implicit relation (e.g. ItemId → InventTable),
+  // D365FO BP requires an explicit table relation on the table — otherwise you get:
+  //   BPErrorEDTNotMigrated: The relation under the EDT must be migrated to table relation.
+  //   BPUpgradeMetadataEDTRelation: EDT relation found in field X. It should be migrated.
+  // Auto-detect from edt_metadata.reference_table and generate matching relations.
+  {
+    const db = symbolIndex.db;
+    for (const f of fields) {
+      if (!f.edt) continue;
+      // Skip if a relation for this field already exists
+      if (relations.some(r => r.constraints.some(c => c.field === f.name))) continue;
+
+      try {
+        const edtRow = db.prepare(
+          `SELECT reference_table FROM edt_metadata WHERE edt_name = ? AND reference_table IS NOT NULL AND reference_table != '' LIMIT 1`
+        ).get(f.edt) as { reference_table: string } | undefined;
+
+        if (edtRow?.reference_table) {
+          // Determine the related field — typically the EDT name itself is the PK field on the target table
+          // e.g. ItemId EDT → InventTable.ItemId, WHSZoneId → WHSZone.WHSZoneId
+          const relatedField = f.edt;  // The EDT name is the canonical field name on the target table
+          relations.push({
+            name: f.name,
+            targetTable: edtRow.reference_table,
+            constraints: [{ field: f.name, relatedField }],
+          });
+          console.log(`[generateSmartTable] Auto-migrated EDT relation: ${f.name} (${f.edt}) → ${edtRow.reference_table}.${relatedField}`);
+        }
+      } catch {
+        // Skip if edt_metadata query fails
+      }
+    }
+  }
+
   // If primaryKeyFields is specified, mark those fields as mandatory (overrides auto-detection)
   if (primaryKeyFields && primaryKeyFields.length > 0) {
     for (const pkFieldName of primaryKeyFields) {
