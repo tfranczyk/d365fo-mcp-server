@@ -259,8 +259,10 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
         await createLangDirectory(lang);
         existingLanguages.push(lang);
       }
-    } else if (createLabelFileIfMissing) {
-      // Label file already has some languages — create directories for new languages from translationMap
+    } else {
+      // Label file already has some languages.
+      // Always create directories for languages in translationMap that don't exist yet.
+      // createLabelFileIfMissing only guards the "no languages at all" case above.
       const existingSet = new Set(existingLanguages.map(l => l.toLowerCase()));
       for (const [lang] of translationMap) {
         if (!existingSet.has(lang.toLowerCase())) {
