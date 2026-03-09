@@ -90,7 +90,7 @@ No local server, no local database.
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
@@ -224,7 +224,7 @@ The server runs at `http://localhost:8080`. Verify with `http://localhost:8080/h
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "http://localhost:8080/mcp/"
     },
     "context": {
@@ -256,7 +256,7 @@ automatically. In most cases you do not need to set any paths manually.
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
@@ -272,7 +272,7 @@ automatically. In most cases you do not need to set any paths manually.
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
