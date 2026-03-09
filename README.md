@@ -68,7 +68,7 @@ npm run dev                      # Server at http://localhost:3000
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "http://localhost:3000/mcp/"
     },
     "context": {
@@ -88,7 +88,12 @@ Copy-Item -Path ".github" -Destination "C:\Path\To\YourSolution\" -Recurse
 
 ---
 
-## What Copilot can do — 41 X++ tools
+## What Copilot can do — 42 X++ tools
+
+### Workspace & Diagnostics
+| Ask Copilot | Tool used |
+|-------------|-----------|
+| `Is the MCP server connected and which model am I working in?` | `get_workspace_info` |
 
 ### Search & Discovery
 | Ask Copilot | Tool used |
@@ -170,7 +175,7 @@ Setup guide: [docs/SETUP.md](docs/SETUP.md) · CI/CD pipeline: [docs/PIPELINES.m
 |------|---------|
 | [docs/SETUP.md](docs/SETUP.md) | Installation, configuration, Azure deployment |
 | [docs/MCP_CONFIG.md](docs/MCP_CONFIG.md) | `.mcp.json` reference — workspace paths, UDE, project settings |
-| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | All 41 tools with parameters and example prompts |
+| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | All 42 tools with parameters and example prompts |
 | [docs/USAGE_EXAMPLES.md](docs/USAGE_EXAMPLES.md) | Practical examples: search, CoC, SysOperation, security |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture, dual-database design |
 | [docs/CUSTOM_EXTENSIONS.md](docs/CUSTOM_EXTENSIONS.md) | ISV / custom model configuration |

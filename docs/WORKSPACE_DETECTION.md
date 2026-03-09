@@ -57,7 +57,7 @@ Minimal override example:
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "http://localhost:8080/mcp/"
     },
     "context": {

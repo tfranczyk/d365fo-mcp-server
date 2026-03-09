@@ -12,7 +12,7 @@ This workspace contains D365FO code. **Always use the specialized MCP tools** �
 >
 > **Case 1 — tool call FAILS (MCP server not connected):**
 > - STOP immediately. Tell the user:
->   > ⚠️ **MCP server is not connected.** The d365fo-mcp-server must be running for safe D365FO development.
+>   > ⚠️ **MCP server is not connected.** The d365fo-mcp-tools must be running for safe D365FO development.
 >   > Without it I cannot read the symbol database, detect the correct model name, or safely create/modify files.
 >   >
 >   > Options:

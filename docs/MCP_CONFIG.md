@@ -12,7 +12,7 @@ Place this file in the root of your Visual Studio solution (next to the `.sln` f
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
@@ -43,13 +43,12 @@ The server will also:
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
       "workspacePath": "K:\\AosService\\PackagesLocalDirectory\\YourPackageName\\YourModelName",
-      "projectPath": "K:\\VSProjects\\MySolution\\MyProject\\MyProject.rnrproj",
-      "solutionPath": "K:\\VSProjects\\MySolution"
+      "projectPath": "K:\\VSProjects\\MySolution\\MyProject\\MyProject.rnrproj"
     }
   }
 }
@@ -63,7 +62,7 @@ roots — one for your custom code and one for Microsoft standard packages:
 ```json
 {
   "servers": {
-    "d365fo-code-intelligence": {
+    "d365fo-mcp-tools": {
       "url": "https://your-server.azurewebsites.net/mcp/"
     },
     "context": {
@@ -190,8 +189,7 @@ GitHub Copilot connects to both servers at the same time and selects the right o
       "command": "node",
       "args": ["K:\\d365fo-mcp-server\\dist\\index.js", "--stdio"],
       "env": {
-        "MCP_SERVER_MODE": "write-only",
-        "DB_PATH": "K:\\d365fo-mcp-server\\data\\xpp-metadata.db"
+        "MCP_SERVER_MODE": "write-only"
       }
     },
     "context": {
