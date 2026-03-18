@@ -1226,6 +1226,29 @@ export class XppSymbolIndex {
           }
         }
 
+        // Add method symbols (parallel to indexClasses)
+        if (tableData.methods && Array.isArray(tableData.methods)) {
+          for (const method of tableData.methods) {
+            const params = method.parameters?.map((p: any) => `${p.type} ${p.name}`).join(', ') || '';
+            this.addSymbol({
+              name: method.name,
+              type: 'method',
+              parentName: tableData.name,
+              signature: `${method.returnType} ${method.name}(${params})`,
+              filePath: sourceFilePath,
+              model,
+              description: method.documentation,
+              tags: method.tags?.join(', '),
+              sourceSnippet: method.sourceSnippet,
+              source: method.source,
+              complexity: method.complexity,
+              usedTypes: method.usedTypes?.join(', '),
+              methodCalls: method.methodCalls?.join(', '),
+              inlineComments: method.inlineComments,
+            });
+          }
+        }
+
         // Index table relations to new table
         if (tableData.relations && Array.isArray(tableData.relations)) {
           const stmt = this.db.prepare(`
@@ -1492,7 +1515,30 @@ export class XppSymbolIndex {
             });
           }
         }
-      
+
+        // Add method symbols (views and data-entities can have display/computed methods)
+        if (viewData.methods && Array.isArray(viewData.methods)) {
+          for (const method of viewData.methods) {
+            const params = method.parameters?.map((p: any) => `${p.type} ${p.name}`).join(', ') || '';
+            this.addSymbol({
+              name: method.name,
+              type: 'method',
+              parentName: viewName,
+              signature: `${method.returnType} ${method.name}(${params})`,
+              filePath: sourceFilePath,
+              model,
+              description: method.documentation,
+              tags: method.tags?.join(', '),
+              sourceSnippet: method.sourceSnippet,
+              source: method.source,
+              complexity: method.complexity,
+              usedTypes: method.usedTypes?.join(', '),
+              methodCalls: method.methodCalls?.join(', '),
+              inlineComments: method.inlineComments,
+            });
+          }
+        }
+
       } catch (error) {
         // Only log errors, don't stop processing
         console.error(`      ⚠️  Skipped view ${file}: ${error instanceof Error ? error.message : error}`);

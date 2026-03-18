@@ -47,25 +47,25 @@ export async function getMethodSignatureTool(request: CallToolRequest, context: 
       return cachedResult;
     }
 
-    // 1. Find the class
-    let stmt;
+    // 1. Find the class/table/view — methods live on all three object types
+    const OBJECT_TYPES = `('class', 'table', 'view', 'data-entity')`;
+    let classRow: any;
     if (modelName) {
-      stmt = symbolIndex.db.prepare(`
-        SELECT file_path, model, name
+      classRow = symbolIndex.db.prepare(`
+        SELECT file_path, model, name, type
         FROM symbols
-        WHERE type = 'class' AND name = ? AND model = ?
+        WHERE type IN ${OBJECT_TYPES} AND name = ? AND model = ?
+        ORDER BY CASE type WHEN 'class' THEN 0 WHEN 'table' THEN 1 ELSE 2 END
         LIMIT 1
-      `);
-      var classRow = stmt.get(className, modelName) as any;
+      `).get(className, modelName);
     } else {
-      stmt = symbolIndex.db.prepare(`
-        SELECT file_path, model, name
+      classRow = symbolIndex.db.prepare(`
+        SELECT file_path, model, name, type
         FROM symbols
-        WHERE type = 'class' AND name = ?
-        ORDER BY model
+        WHERE type IN ${OBJECT_TYPES} AND name = ?
+        ORDER BY CASE type WHEN 'class' THEN 0 WHEN 'table' THEN 1 ELSE 2 END, model
         LIMIT 1
-      `);
-      var classRow = stmt.get(className) as any;
+      `).get(className);
     }
 
     if (!classRow) {
@@ -74,7 +74,7 @@ export async function getMethodSignatureTool(request: CallToolRequest, context: 
         content: [
           {
             type: 'text',
-            text: `❌ Class "${className}" not found. Make sure it's indexed.${typeMismatch}`,
+            text: `❌ Object "${className}" not found. Make sure it's indexed.${typeMismatch}`,
           },
         ],
         isError: true,
@@ -94,7 +94,7 @@ export async function getMethodSignatureTool(request: CallToolRequest, context: 
     const methodRow = methodStmt.get(methodName, className);
 
     if (!methodRow) {
-      throw new Error(`Method "${methodName}" not found in class "${className}".`);
+      throw new Error(`Method "${methodName}" not found in ${classRow.type} "${className}".`);
     }
 
     // 3a. PRIMARY: extracted-metadata JSON (always available, no file path issues)
