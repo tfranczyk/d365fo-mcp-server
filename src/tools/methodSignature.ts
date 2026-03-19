@@ -103,23 +103,31 @@ export async function getMethodSignatureTool(request: CallToolRequest, context: 
 
     if (extractedMethod) {
       const jsonSignature = buildSignatureFromExtractedMethod(extractedMethod);
-      const result = formatOutput(className, methodName, jsonSignature, classRow.model, includeCoc);
+      const obsoleteWarning = detectObsolete(extractedMethod.source ?? '');
+      const result = formatOutput(className, methodName, jsonSignature, classRow.model, includeCoc, obsoleteWarning);
       await cache.setClassInfo(cacheKey, result);
       return result;
     }
 
     // 3b. SECONDARY: XML file (only works when running on D365FO VM with correct paths)
     let methodSignature: MethodSignature | null = null;
+    let xmlSource = '';
     try {
       const xmlContent = await fs.readFile(classRow.file_path, 'utf-8');
       const xmlObj = await parseStringPromise(xmlContent);
       methodSignature = extractMethodSignature(xmlObj, methodName);
+      // Grab raw source for obsolete detection
+      const axClass = xmlObj?.AxClass;
+      const methods = axClass?.Methods?.[0]?.Method ?? [];
+      const mNode = methods.find((m: any) => m.Name?.[0] === methodName);
+      xmlSource = mNode?.Source?.[0] ?? '';
     } catch {
       // File not accessible (build-agent path) — fall through to DB fallback
     }
 
     if (methodSignature) {
-      const result = formatOutput(className, methodName, methodSignature, classRow.model, includeCoc);
+      const obsoleteWarning = detectObsolete(xmlSource);
+      const result = formatOutput(className, methodName, methodSignature, classRow.model, includeCoc, obsoleteWarning);
       await cache.setClassInfo(cacheKey, result);
       return result;
     }
@@ -429,16 +437,31 @@ function buildFallbackSignature(methodRow: any): MethodSignature {
 /**
  * Format output
  */
+/**
+ * Detect [SysObsolete] or [Obsolete] attribute in X++ source and return a warning string.
+ * Returns an empty string when no obsolete marker is found.
+ */
+function detectObsolete(source: string): string {
+  const m = source.match(/\[\s*SysObsolete\s*\(\s*['"]([^'"]*)['"]|\[\s*Obsolete\s*\(\s*['"]([^'"]*)['"]/i);
+  if (!m) return '';
+  const msg = m[1] ?? m[2] ?? '';
+  return `\n> ⚠️ **This method is marked obsolete. Do NOT generate calls to it.**${
+    msg ? `\n> Replacement hint: _"${msg}"_` : ''
+  }\n> Use the stated replacement instead.`;
+}
+
 function formatOutput(
   className: string,
   methodName: string,
   signature: MethodSignature,
   modelName: string,
-  includeCocTemplate: boolean = false
+  includeCocTemplate: boolean = false,
+  obsoleteWarning: string = ''
 ): any {
   let output = `# Method: \`${className}.${methodName}\`\n`;
-  output += `**Model:** ${modelName}  **Returns:** ${signature.returnType}  **Modifiers:** ${signature.modifiers.join(', ') || 'none'}\n\n`;
-  output += `\`\`\`xpp\n${signature.signature}\n\`\`\`\n`;
+  output += `**Model:** ${modelName}  **Returns:** ${signature.returnType}  **Modifiers:** ${signature.modifiers.join(', ') || 'none'}\n`;
+  if (obsoleteWarning) output += obsoleteWarning + '\n';
+  output += `\n\`\`\`xpp\n${signature.signature}\n\`\`\`\n`;
 
   if (signature.parameters.length > 0) {
     output += `\n**Parameters:** ${signature.parameters.map(p => `${p.type} ${p.name}${p.defaultValue ? ` = ${p.defaultValue}` : ''}`).join(', ')}\n`;
