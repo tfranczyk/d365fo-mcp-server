@@ -199,7 +199,8 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 > `run_bp_check`, `build_d365fo_project`, `trigger_db_sync`, and `run_systest_class` call the real D365FO CLI binaries (xppbp.exe, MSBuild, SyncEngine.exe).
 > - All parameters are **optional** — model name and packagePath are auto-detected from `.mcp.json`.
 > - If `run_bp_check` returns an error about a missing binary, it means `packagePath` in `.mcp.json` is wrong — fix the config, do NOT switch to PowerShell or `review_workspace_changes`.
-> - `review_workspace_changes` is for **git diff code review only** — it is NOT a substitute for BP check.
+> - `review_workspace_changes` is for **git diff code review only** — NOT a substitute for BP check, and NOT for verifying that `modify_d365fo_file` succeeded.
+> - After `modify_d365fo_file` or `create_d365fo_file`, always call `update_symbol_index(filePath)` first, then `get_class_info` or `get_method_source` to confirm the change landed. Never use `review_workspace_changes` as a verification step.
 
 > ### ⚠️ CRITICAL — `get_form_info` WORKS for ALL D365FO forms
 >
@@ -244,6 +245,10 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 19. **ALWAYS** write meaningful `/// <summary>` doc comments on every public/protected class and method — the text must describe what the code does, not just echo the name. `/// MyClass class.` or `/// run.` is NEVER acceptable (BPXmlDocNoDocumentationComments).
 20. **NEVER** pass `tableGroup="TempDB"` or `tableGroup="InMemory"` to `generate_smart_table` — `TempDB`/`InMemory` are **TableType** values, not **TableGroup** values. For a TempDB table use `tableType="TempDB"` and keep `tableGroup="Main"` (or another valid group). Valid `TableGroup` values (system enum TableGroup, source: MSDN): `Miscellaneous` (default for new tables) | `Main` | `Transaction` | `Parameter` | `Group` | `WorksheetHeader` | `WorksheetLine` | `Reference` | `Framework`.
 21. **NEVER** use PowerShell / `run_in_terminal` to run BP checks, builds, or DB sync — ALWAYS use `run_bp_check()`, `build_d365fo_project()`, `trigger_db_sync()`, `run_systest_class()`. All parameters (model, packagePath, projectPath) are **optional** and auto-detected from `.mcp.json`. If one of these tools returns an error about a missing binary or path, inform the user to fix `.mcp.json` — do NOT fall back to PowerShell. Do NOT use `review_workspace_changes` as a substitute for `run_bp_check` — they serve different purposes.
+22. **NEVER** call a method or API marked with `[SysObsolete]` (or `[Obsolete]` in C# interop). The attribute message almost always names the replacement — read it and use that replacement instead. If you encounter an obsolete symbol while reading existing code with `get_method_source` or in `analyze_code_patterns` output, verify the replacement before generating any call to it. Common examples:
+    - `today()` → `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`
+    - `SysQuery::findOrCreateRange()` → `SysQuery::findOrCreateRange()` still valid but many helpers around it changed — check the attribute
+    - When `get_method_source` or `search` returns a method body containing `[SysObsolete(...)]` on it, do NOT generate calls to that method. Use the replacement stated in the attribute string.
 
 ### AxClass sourceCode Format — Member Variables in Declaration
 
@@ -327,6 +332,9 @@ When the user asks to **refactor**, **improve**, **clean up**, **optimize**, or 
                            → use for EACH method you intend to change
                            → returns the FULL source code (not just the signature)
                            → NEVER guess the body from the signature
+                           → ⚠️ ONLY call for methods you already saw listed in step 1.
+                              NEVER infer names from D365FO conventions (parm*, find, exist, …)
+                              — the method may not exist on this class.
 
 5. Find usages:            find_references("ClassName")  or  find_references("methodName")
                            → verify that renaming/changing a method won't break callers
@@ -609,7 +617,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 ### SDLC & Build Tools
 | Tool | Use for |
 |------|---------|
-| `update_symbol_index(filePath)` | Index a newly generated XML file immediately so that references to it work without restarting. |
+| `update_symbol_index(filePath)` | **Call after every `modify_d365fo_file` AND `create_d365fo_file`** so that `get_class_info`, `get_method_source`, and `search` return fresh results. Without this, the index is stale and lookups for newly-added methods will return ❌ not found. |
 | `build_d365fo_project(projectPath)` | Run MSBuild compilation locally to capture errors. |
 | `trigger_db_sync(modelName, tableName?)` | Run a database sync for the current model. |
 | `run_bp_check(projectPath, targetFilter?)` | Run Microsoft Best Practices (xppbp.exe) analysis. |
@@ -618,7 +626,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 ### Code Review & Source Control
 | Tool | Use for |
 |------|---------|
-| `review_workspace_changes(directoryPath)` | Analyzes uncommitted X++ changes locally and fetches a git diff to perform AI-based D365 Code Review. |
+| `review_workspace_changes(directoryPath)` | **Code review only** (git diff → BP check). ❌ NOT for verifying that a `modify_d365fo_file` call succeeded — use `update_symbol_index` + `get_class_info` for that. If the diff is truncated, do NOT use built-in tools to read more — they are forbidden on .xml/.xpp. |
 | `undo_last_modification(filePath)` | Safely checkout HEAD or delete specifically created untracked files when a code implementation was incorrectly generated. |
 
 

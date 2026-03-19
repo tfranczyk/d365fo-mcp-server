@@ -1156,6 +1156,8 @@ Examples:
           name: 'get_method_source',
           description: `📄 Get the full X++ source code of a specific method. Use this when you need to understand the complete implementation — business logic, conditions, loops, error handling — not just the signature.
 
+⚠️ ONLY call this for methods you have already confirmed exist via \`get_class_info\`. Never guess or infer a method name from D365FO conventions (e.g. parm*, find, exist) — the method may not be defined in this class. If unsure, call \`get_class_info\` first and pick the method name from the returned list.
+
 Returns:
 - Complete method body as X++ code
 - Method signature
@@ -2418,7 +2420,7 @@ Examples:
       // ── Code Review & Source Control ─────────────────────────────────────────
       {
         name: 'review_workspace_changes',
-        description: 'Analyze uncommitted X++ changes in a local git repository (git diff HEAD) and perform an AI-based D365FO code review. Checks for BP violations, missing labels, CoC patterns, and other best practices.',
+        description: 'Analyze uncommitted X++ changes in a local git repository (git diff HEAD) and perform an AI-based D365FO code review. Checks for BP violations, missing labels, CoC patterns, and other best practices.\n\n⚠️ This tool is for CODE REVIEW ONLY — NOT for verifying that a modify_d365fo_file or create_d365fo_file call succeeded. For post-edit verification use verify_d365fo_project (disk + .rnrproj) and get_class_info / get_method_source after update_symbol_index.\n\n⚠️ The diff output may be large. If it appears truncated, do NOT use built-in file-reading tools (read_file, grep_search, get_file) to supplement it — those tools are forbidden on .xml/.xpp files. Instead, accept the visible portion and proceed or ask the user to narrow the scope.',
         inputSchema: {
           type: 'object',
           properties: {
