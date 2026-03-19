@@ -583,14 +583,14 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
           {
             type: 'text',
             text:
-              `## 🔍 Preview (dry-run) — změny NEBYLY aplikovány\n\n` +
-              `| Vlastnost | Hodnota |\n` +
+              `## 🔍 Preview (dry-run) — changes NOT applied\n\n` +
+              `| Property | Value |\n` +
               `|---|---|\n` +
-              `| **Operace** | \`${opLabel}\` |\n` +
-              `| **Soubor** | \`${actualFilePath}\` |\n\n` +
-              `### Co se změní\n\n` +
+              `| **Operation** | \`${opLabel}\` |\n` +
+              `| **File** | \`${actualFilePath}\` |\n\n` +
+              `### What will change\n\n` +
               `\`\`\`diff\n${diff}\n\`\`\`\n\n` +
-              `> ✅ Pro aplikování změn zavolejte znovu **bez** parametru \`dryRun\` (nebo s \`dryRun: false\`).`,
+              `> ✅ To apply the changes, call again **without** the \`dryRun\` parameter (or with \`dryRun: false\`).`,
           },
         ],
       };
@@ -611,7 +611,7 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
           text:
             `✅ ${message}\n\n` +
             `**File:** ${actualFilePath}\n\n` +
-            `### Aplikované změny\n\n` +
+            `### Applied changes\n\n` +
             `\`\`\`diff\n${appliedDiff}\n\`\`\`\n\n` +
             `**Next steps:**\n- Review changes in Visual Studio\n- Build the model to validate\n- Commit changes to source control`,
         },
