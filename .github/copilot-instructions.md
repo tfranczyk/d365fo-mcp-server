@@ -4,6 +4,30 @@ This workspace contains D365FO code. **Always use the specialized MCP tools** �
 
 ---
 
+> ## 🚨 POWERSHELL / TERMINAL — ABSOLUTE PROHIBITION
+>
+> **PowerShell AND any terminal command WILL HANG in this workspace and block the entire session.**
+>
+ > This is a hard constraint that applies in **every** IDE (VS Code, Visual Studio 2022, 2026, or any other version).
+>
+> **NEVER, under any circumstances:**
+> - Open Developer PowerShell (Visual Studio integrated terminal, any version)
+> - Run any `run_in_terminal` / shell command
+> - Use PowerShell as a fallback when an MCP tool is unavailable or returns an error
+> - Use PowerShell to "work around" a tool limitation or error message
+> - Claim that a required parameter is "missing from the schema" and use that as justification for PowerShell — **re-read the schema first**. Parameters like `fieldGroupName`, `fieldName`, `methodName`, `propertyPath` etc. are ALL present. If you think one is missing, you are mistaken.
+>
+> **If an MCP tool is missing, unavailable, or returns an error — STOP.**
+> Tell the user exactly which tool failed and why. Do NOT silently fall back to a terminal.
+>
+> The correct response to a missing or broken tool is always one of:
+> 1. Use a different MCP tool that achieves the same goal
+> 2. STOP and ask the user how to proceed
+>
+> There is NO scenario in this workspace where opening a terminal or running a PowerShell command is acceptable.
+
+---
+
 > ## 🔌 MANDATORY FIRST CHECK — MCP SERVER + WORKSPACE CONFIGURATION
 >
 > **Before doing ANYTHING in this workspace, call `get_workspace_info()` with no arguments.**
@@ -40,7 +64,7 @@ This workspace contains D365FO code. **Always use the specialized MCP tools** �
 >
 >  **NEVER** edit D365FO objects with built-in tools:
 > - `replace_string_in_file` / `multi_replace_string_in_file` / `edit_file` / `apply_patch`
-> - PowerShell scripts (`Set-Content`, `Add-Content`, any shell-based file write)
+> - PowerShell / Developer PowerShell scripts (`Set-Content`, `Add-Content`, any shell-based file write)
 > - `create_file` on an existing object
 >
 >  **ALWAYS** use:
@@ -145,7 +169,7 @@ This workspace contains D365FO code. **Always use the specialized MCP tools** �
 >    (show the diff to the user and ask for confirmation if the change is non-trivial)
 > 4. modify_d365fo_file(...)                         apply (omit dryRun, or set dryRun=false)
 >    NOT: replace_string_in_file                       FORBIDDEN
->    NOT: PowerShell script                            FORBIDDEN
+>    NOT: PowerShell / Developer PowerShell script     FORBIDDEN
 > ```
 >
 > **`dryRun` usage rules:**
@@ -193,19 +217,19 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 | `get_file`, `read_file` on .xml/.xpp | `get_class_info()`, `get_table_info()`, `get_form_info()`, `get_report_info()` |
 | `edit_file`, `apply_patch`, `replace_string_in_file` | `modify_d365fo_file()` |
 | `create_file` for D365FO objects | `create_d365fo_file()` |
-  | PowerShell `run_in_terminal` or scripts to edit files | **FORBIDDEN. ALWAYS USE MCP TOOLS INSTEAD! PowerShell hangs in this workspace.** |
-| PowerShell `ls`, `Test-Path`, `Get-Item` to check D365FO files | `verify_d365fo_project()` |
-| PowerShell `Get-Content` / `Select-String` to find tab/control names in form XML | `get_form_info(formName, searchControl="General")` |
-| PowerShell / `run_in_terminal` to run BP check (xppbp.exe) | `run_bp_check()` — auto-detects model and packagePath from .mcp.json |
-| PowerShell / `run_in_terminal` to compile/build the project | `build_d365fo_project()` — auto-detects projectPath from .mcp.json |
-| PowerShell / `run_in_terminal` to run DB sync (SyncEngine.exe) | `trigger_db_sync()` |
-| PowerShell / `run_in_terminal` to run unit tests | `run_systest_class()` |
+  | PowerShell / Developer PowerShell `run_in_terminal` or scripts to edit files | **FORBIDDEN. ALWAYS USE MCP TOOLS INSTEAD! PowerShell hangs in this workspace.** |
+| PowerShell / Developer PowerShell `ls`, `Test-Path`, `Get-Item` to check D365FO files | `verify_d365fo_project()` |
+| PowerShell / Developer PowerShell `Get-Content` / `Select-String` to find tab/control names in form XML | `get_form_info(formName, searchControl="General")` |
+| PowerShell / Developer PowerShell / `run_in_terminal` to run BP check (xppbp.exe) | `run_bp_check()` — auto-detects model and packagePath from .mcp.json |
+| PowerShell / Developer PowerShell / `run_in_terminal` to compile/build the project | `build_d365fo_project()` — auto-detects projectPath from .mcp.json |
+| PowerShell / Developer PowerShell / `run_in_terminal` to run DB sync (SyncEngine.exe) | `trigger_db_sync()` |
+| PowerShell / Developer PowerShell / `run_in_terminal` to run unit tests | `run_systest_class()` |
 
-> ### ⚠️ SDLC Tools — NEVER fall back to PowerShell or review_workspace_changes
+> ### ⚠️ SDLC Tools — NEVER fall back to PowerShell / Developer PowerShell or review_workspace_changes
 >
 > `run_bp_check`, `build_d365fo_project`, `trigger_db_sync`, and `run_systest_class` call the real D365FO CLI binaries (xppbp.exe, MSBuild, SyncEngine.exe).
 > - All parameters are **optional** — model name and packagePath are auto-detected from `.mcp.json`.
-> - If `run_bp_check` returns an error about a missing binary, it means `packagePath` in `.mcp.json` is wrong — fix the config, do NOT switch to PowerShell or `review_workspace_changes`.
+> - If `run_bp_check` returns an error about a missing binary, it means `packagePath` in `.mcp.json` is wrong — fix the config, do NOT switch to PowerShell / Developer PowerShell or `review_workspace_changes`.
 > - `review_workspace_changes` is for **git diff code review only** — NOT a substitute for BP check, and NOT for verifying that `modify_d365fo_file` succeeded.
 > - After `modify_d365fo_file` or `create_d365fo_file`, always call `update_symbol_index(filePath)` first, then `get_class_info` or `get_method_source` to confirm the change landed. Never use `review_workspace_changes` as a verification step.
 
