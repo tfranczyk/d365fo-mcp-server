@@ -239,6 +239,7 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 | Optimize query | `get_table_info` → `analyze_code_patterns` |
 | Where is X used? | `find_references(targetName)` |
 | How does X work? | `get_class_info` / `get_table_info` / `get_form_info` / `get_report_info` |
+| How to implement X? (pattern) | `get_xpp_knowledge("batch job")` → `analyze_code_patterns` |
 | What can I extend on X? | `analyze_extension_points(objectName)` |
 | Who already extends method X via CoC? | `find_coc_extensions(className, methodName)` |
 | Who handles events for table X? | `find_event_handlers(targetTable)` |
@@ -672,6 +673,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 ### Code Generation & Analysis
 | Tool | Use for |
 |------|---------|
+| `get_xpp_knowledge(topic, format?)` | **Queryable X++ knowledge base** — D365FO patterns, best practices, AX2012→D365FO migration. Call BEFORE generating code to avoid deprecated APIs. Topics: batch jobs, transactions, CoC, queries, set-based ops, security, data entities, temp tables, SSRS reports, number sequences, labels, form patterns, error handling, testing. `format="detailed"` includes code examples. |
 | `analyze_code_patterns(scenario)` | Find patterns before generating code |
 | `suggest_method_implementation(className, methodName)` | Real implementation examples |
 | `analyze_class_completeness(className)` | Missing standard methods |
