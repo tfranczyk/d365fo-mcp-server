@@ -147,8 +147,8 @@ export const runBpCheckTool = async (params: any, _context: any) => {
     }
 
     // Detect violations in XML log or plain text output
-    const hasErrors = /BPError|BPCheck|<Diagnostic|severity="error"/i.test(logContent)
-      || /BPError|BPCheck/i.test(combined);
+    const hasErrors = /BPError|<Diagnostic|severity="error"/i.test(logContent)
+      || /BPError|severity\s*[:=]\s*error/i.test(combined);
 
     const summary = hasErrors ? '⚠️ BP Check completed with issues' : '✅ BP Check passed';
     const details = logContent || combined || '(no output)';

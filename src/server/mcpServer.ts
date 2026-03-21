@@ -2495,7 +2495,7 @@ Examples:
       // ── Code Review & Source Control ─────────────────────────────────────────
       {
         name: 'review_workspace_changes',
-        description: 'Analyze uncommitted X++ changes in a local git repository (git diff HEAD) and perform an AI-based D365FO code review. Checks for BP violations, missing labels, CoC patterns, and other best practices.\n\n⚠️ This tool is for CODE REVIEW ONLY — NOT for verifying that a modify_d365fo_file or create_d365fo_file call succeeded. For post-edit verification use verify_d365fo_project (disk + .rnrproj) and get_class_info / get_method_source after update_symbol_index.\n\n⚠️ The diff output may be large. If it appears truncated, do NOT use built-in file-reading tools (read_file, grep_search, get_file) to supplement it — those tools are forbidden on .xml/.xpp files. Instead, accept the visible portion and proceed or ask the user to narrow the scope.',
+        description: 'Analyze uncommitted X++ changes in a local git repository (git diff HEAD) and perform an AI-based D365FO code review. Checks for BP violations, missing labels, CoC patterns, and other best practices.\n\n⚠️ Local companion tool: available only in write-only/local mode (Windows VM).\n\n⚠️ This tool is for CODE REVIEW ONLY — NOT for verifying that a modify_d365fo_file or create_d365fo_file call succeeded. For post-edit verification use verify_d365fo_project (disk + .rnrproj) and get_class_info / get_method_source after update_symbol_index.\n\n⚠️ The diff output may be large. If it appears truncated, do NOT use built-in file-reading tools (read_file, grep_search, get_file) to supplement it — those tools are forbidden on .xml/.xpp files. Instead, accept the visible portion and proceed or ask the user to narrow the scope.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2506,7 +2506,7 @@ Examples:
       },
       {
         name: 'undo_last_modification',
-        description: 'Safely revert the last change to a specific file. If the file is tracked by git, runs git checkout HEAD to restore it. If the file is untracked (newly created), deletes it. Use this to safely roll back incorrectly generated code.',
+        description: 'Safely revert the last change to a specific file. If the file is tracked by git, runs git checkout HEAD to restore it. If the file is untracked (newly created), deletes it. Use this to safely roll back incorrectly generated code.\n\n⚠️ Local companion tool: available only in write-only/local mode (Windows VM).',
         inputSchema: {
           type: 'object',
           properties: {

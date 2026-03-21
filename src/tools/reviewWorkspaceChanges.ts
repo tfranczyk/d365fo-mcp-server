@@ -1,8 +1,18 @@
 import { z } from 'zod';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import util from 'util';
+import path from 'path';
 
-const execAsync = util.promisify(exec);
+const execFileAsync = util.promisify(execFile);
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+  return stdout;
+}
 
 export const reviewWorkspaceChangesToolDefinition = {
   name: 'review_workspace_changes',
@@ -22,7 +32,7 @@ function extractChangedFiles(diff: string, repoRoot: string): string[] {
     if (line.startsWith('+++ b/')) {
       const rel = line.slice(6); // strip "+++ b/"
       if (rel === '/dev/null') continue;
-      const abs = repoRoot.replace(/[\\/]$/, '') + '\\' + rel.replace(/\//g, '\\');
+      const abs = path.resolve(repoRoot, rel);
       if (!seen.has(abs)) {
         seen.add(abs);
         paths.push(abs);
@@ -35,12 +45,13 @@ function extractChangedFiles(diff: string, repoRoot: string): string[] {
 export const reviewWorkspaceChangesTool = async (params: any, _context: any) => {
   const { directoryPath } = params;
   try {
-    const { stdout } = await execAsync('git diff HEAD --unified=3', { cwd: directoryPath });
+    const repoRoot = (await git(['rev-parse', '--show-toplevel'], directoryPath)).trim();
+    const stdout = await git(['diff', 'HEAD', '--unified=3'], repoRoot);
     if (!stdout.trim()) {
       return { content: [{ type: 'text', text: 'No uncommitted changes found for review.' }] };
     }
 
-    const changedFiles = extractChangedFiles(stdout, directoryPath);
+    const changedFiles = extractChangedFiles(stdout, repoRoot);
     let undoSection = '';
     if (changedFiles.length > 0) {
       const fileList = changedFiles.map(f => `  • ${f}`).join('\n');
