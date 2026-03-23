@@ -424,7 +424,7 @@ interface BridgeTableInfo {
 
 ### Bridge Adapter (`bridgeAdapter.ts`)
 
-Eight `tryBridge*()` functions, one per tool handler. Each:
+Twelve `tryBridge*()` functions, one per tool handler. Each:
 
 1. Checks `bridge?.isReady` (and `bridge.metadataAvailable` or `bridge.xrefAvailable`)
 2. Calls the appropriate bridge method
@@ -504,7 +504,7 @@ MCP Server (stdio) ─── D365MetadataBridge.exe ─── IMetadataProvider
 ```
 
 - Bridge auto-starts at server launch
-- All 8 tool handlers use bridge as primary source
+- All 12 tool handlers use bridge as primary source
 - SQLite serves as fallback (bridge process crash, specific object not found)
 
 ### Scenario 2: Azure App Service / Linux (no bridge)
