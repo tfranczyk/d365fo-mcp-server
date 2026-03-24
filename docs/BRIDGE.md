@@ -228,17 +228,17 @@ if (!args.xmlContent && context?.bridge && canBridgeCreate(args.objectType)) {
 ```
 
 ```typescript
-// In modifyD365File.ts — for supported operations:
-if (!dryRun && context?.bridge && canBridgeModify(objectType, operation)) {
-  const result = await bridgeAddMethod(context.bridge, objectType, objectName, ...);
-  if (result?.success) return result;   // ✅ Bridge modified the file
+// In modifyD365File.ts — bridge is now the ONLY write path:
+if (!context?.bridge) {
+  throw new Error('C# metadata bridge is not available...');
 }
-// Fall through to xml2js-based modification
+if (!canBridgeModify(objectType, operation)) {
+  throw new Error(`Operation "${operation}" is not bridged...`);
+}
+const result = await bridgeAddMethod(context.bridge, objectType, objectName, ...);
+if (!result?.success) throw new Error('Bridge operation failed');
+// No xml2js fallback — bridge handles all 25 modify operations.
 ```
-
-> **Note:** `dryRun` mode always uses the TypeScript xml2js path because the bridge
-> writes directly to disk via `IMetadataProvider.Update()` — it cannot produce a
-> diff preview without making changes.
 
 ### Tools NOT Using the Bridge
 
@@ -248,8 +248,6 @@ These tools use specialized logic that doesn't benefit from the bridge:
 - `analyze_extension_points`, `recommend_extension_strategy` — analysis heuristics
 - `find_coc_extensions`, `find_event_handlers` — SQLite FTS pattern matching
 - `create_d365fo_file` for report, data-entity, tile, kpi, business-event — remain in TypeScript XML generation
-- `modify_d365fo_file` for `add-field-modification` (table-extension specific) and `add-field-modification` — xml2js only (no bridge implementation)
-- `modify_d365fo_file` `dryRun=true` mode — always uses xml2js for diff preview (bridge writes directly to disk)
 - `update_symbol_index` — SQLite + Redis cache invalidation (bridge is refreshed but not used for indexing)
 - `undo_last_modification` — git operations + index cleanup (uses bridge refresh only)
 
@@ -281,7 +279,7 @@ typed.Create(axClass, modelSaveInfo);
 
 ### Supported Object Types
 
-| Object Type | Create | Modify (23 of 25 operations bridged) |
+| Object Type | Create | Modify (25 of 25 operations bridged) |
 |---|---|---|
 | Class | ✅ `IMetaClassProvider.Create()` | ✅ add/remove-method, set-property, replace-code |
 | Class Extension | ✅ (via CreateClass) | — |
@@ -298,13 +296,16 @@ typed.Create(axClass, modelSaveInfo);
 | Security Privilege | ✅ `IMetaSecurityPrivilegeProvider.Create()` | — (xml2js) |
 | Security Duty | ✅ `IMetaSecurityDutyProvider.Create()` | — (xml2js) |
 | Security Role | ✅ `IMetaSecurityRoleProvider.Create()` | — (xml2js) |
-| Table Extension | ✅ `IMetaTableExtensionProvider.Create()` | ✅ All field/index/relation/fieldgroup/method operations |
+| Table Extension | ✅ `IMetaTableExtensionProvider.Create()` | ✅ All field/index/relation/fieldgroup/method ops + add-field-modification |
 | Form Extension | ✅ `IMetaFormExtensionProvider.Create()` | ✅ add/remove-method, add-control, add-data-source |
 | Enum Extension | ✅ `IMetaEnumExtensionProvider.Create()` | ✅ add/modify/remove-enum-value |
+| Menu | ✅ `IMetaMenuProvider.Create()` | ✅ add-menu-item-to-menu |
 | Report | — (TypeScript XML) | — (xml2js) |
 | Data Entity | — (TypeScript XML) | — (xml2js) |
 
-> **Not bridged (2 of 25 operations):** `add-field-modification` (table-extension PropertyModifications) — xml2js only. `dryRun=true` always uses xml2js for diff preview.
+> **All 25 modify operations are now bridged.** The `dryRun` parameter has been removed —
+> the bridge writes directly via `IMetadataProvider.Update()`. Use `get_method_source()`
+> after modifying to verify changes.
 
 ### ModelSaveInfo Resolution
 
@@ -605,7 +606,7 @@ src/bridge/
 ├── index.ts              Barrel exports for all bridge types and functions
 ├── bridgeClient.ts       BridgeClient class — spawn, JSON-RPC, typed methods
 ├── bridgeTypes.ts        ~50 TypeScript interfaces matching C# models (incl. write, delete, batch, capabilities types)
-└── bridgeAdapter.ts      12 tryBridge*() read adapters + 28 bridge*() write adapters (create/17 modify ops/delete/batch/capabilities/patterns)
+└── bridgeAdapter.ts      12 tryBridge*() read adapters + 30 bridge*() write adapters (create/17 modify ops/delete/batch/capabilities/patterns)
 ```
 
 ### BridgeClient (`bridgeClient.ts`)
@@ -616,7 +617,7 @@ Singleton class managing the child process lifecycle:
 - **`call<T>(method, params)`** — Sends JSON-RPC request, returns typed promise (60s timeout)
 - **`dispose()`** — Gracefully shuts down the child process
 - **14 typed read methods** — `readTable()`, `readClass()`, `findReferences()`, etc.
-- **26 typed write methods** — `createObject()`, `addMethod()`, `removeMethod()`, `addField()`, `modifyField()`, `renameField()`, `removeField()`, `replaceAllFields()`, `addIndex()`, `removeIndex()`, `addRelation()`, `removeRelation()`, `addFieldGroup()`, `removeFieldGroup()`, `addFieldToFieldGroup()`, `addEnumValue()`, `modifyEnumValue()`, `removeEnumValue()`, `addControl()`, `addDataSource()`, `setProperty()`, `replaceCode()`, `deleteObject()`, `batchModify()`, `getCapabilities()`, `discoverFormPatterns()`
+- **28 typed write methods** — `createObject()`, `addMethod()`, `removeMethod()`, `addField()`, `modifyField()`, `renameField()`, `removeField()`, `replaceAllFields()`, `addIndex()`, `removeIndex()`, `addRelation()`, `removeRelation()`, `addFieldGroup()`, `removeFieldGroup()`, `addFieldToFieldGroup()`, `addEnumValue()`, `modifyEnumValue()`, `removeEnumValue()`, `addControl()`, `addDataSource()`, `setProperty()`, `replaceCode()`, `deleteObject()`, `batchModify()`, `getCapabilities()`, `discoverFormPatterns()`, `addFieldModification()`, `addMenuItemToMenu()`
 
 Properties:
 - `isReady` — Process is running and initialized

@@ -1504,6 +1504,142 @@ namespace D365MetadataBridge.Services
         }
 
         // ========================
+        // TABLE-EXTENSION: ADD FIELD MODIFICATION
+        // ========================
+
+        /// <summary>
+        /// Adds or updates a FieldModification entry in a table-extension.
+        /// Allows overriding Label / Mandatory on a base-table field.
+        /// SDK does not expose FieldModifications collection statically — use fully dynamic access.
+        /// </summary>
+        public object AddFieldModification(string extensionName, string fieldName,
+            string? fieldLabel, bool? fieldMandatory)
+        {
+            var axExt = _provider.TableExtensions.Read(extensionName)
+                ?? throw new ArgumentException($"Table extension '{extensionName}' not found");
+            var msi = GetModelSaveInfoForObject(_provider.TableExtensions, extensionName);
+
+            // AxTableExtension.FieldModifications and the element type are not always
+            // statically available — use fully dynamic access (same pattern as Methods).
+            dynamic dynExt = axExt;
+            dynamic fmCollection = dynExt.FieldModifications;
+
+            // Check if a modification for this field already exists
+            dynamic? existing = null;
+            foreach (dynamic fm in fmCollection)
+            {
+                if (string.Equals((string)fm.Name, fieldName, StringComparison.OrdinalIgnoreCase))
+                { existing = fm; break; }
+            }
+
+            if (existing == null)
+            {
+                // Create new field modification entry — use the element type from the collection
+                var assembly = typeof(AxClass).Assembly;
+                // Try known type names: AxTableFieldModification, AxTableExtensionFieldModification
+                Type? fmType = assembly.GetType("Microsoft.Dynamics.AX.Metadata.MetaModel.AxTableFieldModification")
+                    ?? assembly.GetType("Microsoft.Dynamics.AX.Metadata.MetaModel.AxTableExtensionFieldModification");
+                if (fmType == null)
+                {
+                    // Fallback: discover from collection's generic type argument
+                    var collType = fmCollection.GetType();
+                    if (collType.IsGenericType)
+                    {
+                        var args = collType.GetGenericArguments();
+                        if (args.Length > 0) fmType = args[0];
+                    }
+                }
+                if (fmType == null)
+                    throw new InvalidOperationException("Cannot determine FieldModification element type — use xmlContent fallback");
+
+                existing = Activator.CreateInstance(fmType)!;
+                existing.Name = fieldName;
+                fmCollection.Add(existing);
+            }
+
+            if (fieldLabel != null) existing.Label = fieldLabel;
+            if (fieldMandatory.HasValue)
+                existing.Mandatory = fieldMandatory.Value
+                    ? Microsoft.Dynamics.AX.Metadata.Core.MetaModel.NoYes.Yes
+                    : Microsoft.Dynamics.AX.Metadata.Core.MetaModel.NoYes.No;
+
+            ((IMetaTableExtensionProvider)_provider.TableExtensions).Update(axExt, msi);
+            return new { success = true, operation = "add-field-modification", objectName = extensionName, fieldName,
+                fieldLabel, fieldMandatory, api = "IMetaTableExtensionProvider.Update" };
+        }
+
+        // ========================
+        // MENU: ADD MENU ITEM TO MENU
+        // ========================
+
+        /// <summary>
+        /// Adds a menu item reference to an existing menu.
+        /// Menu element types may differ from standalone AxMenuItemXxx — use dynamic discovery.
+        /// </summary>
+        public object AddMenuItemToMenu(string menuName, string menuItemName, string menuItemType)
+        {
+            var axMenu = _provider.Menus.Read(menuName)
+                ?? throw new ArgumentException($"Menu '{menuName}' not found");
+            var msi = GetModelSaveInfoForObject(_provider.Menus, menuName);
+
+            // Use dynamic dispatch — AxMenu.MenuItems hierarchy varies by SDK version.
+            // Menu element items are NOT the standalone AxMenuItemDisplay/Action/Output types;
+            // they are AxMenuElementMenuItem* types (or similar).
+            dynamic dynMenu = axMenu;
+
+            var itemType = (menuItemType ?? "display").ToLowerInvariant();
+            var assembly = typeof(AxClass).Assembly;
+
+            // Discover the correct element type for menu item references
+            string[] candidateTypeNames = itemType switch
+            {
+                "display" => new[] {
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuElementMenuItemDisplay",
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemDisplayReference" },
+                "action" => new[] {
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuElementMenuItemAction",
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemActionReference" },
+                "output" => new[] {
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuElementMenuItemOutput",
+                    "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemOutputReference" },
+                _ => throw new ArgumentException($"Unsupported menu item type: '{menuItemType}'. Use 'display', 'action', or 'output'."),
+            };
+
+            Type? elementType = null;
+            foreach (var name in candidateTypeNames)
+            {
+                elementType = assembly.GetType(name);
+                if (elementType != null) break;
+            }
+
+            // Last resort: iterate MenuItems to find element base type, then find subclass for our item type
+            if (elementType == null)
+            {
+                // Try to get the collection's generic argument as the base type
+                dynamic menuItems = dynMenu.MenuItems;
+                var collType = ((object)menuItems).GetType();
+                if (collType.IsGenericType)
+                {
+                    var baseElemType = collType.GetGenericArguments()[0];
+                    // Find a subclass whose name contains "display"/"action"/"output"
+                    elementType = assembly.GetTypes()
+                        .FirstOrDefault(t => baseElemType.IsAssignableFrom(t) && !t.IsAbstract
+                            && t.Name.IndexOf(itemType, StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+            }
+
+            if (elementType == null)
+                throw new InvalidOperationException($"Cannot determine menu element type for '{itemType}' — use xmlContent fallback");
+
+            dynamic menuItem = Activator.CreateInstance(elementType)!;
+            menuItem.Name = menuItemName;
+            dynMenu.MenuItems.Add(menuItem);
+
+            ((IMetaMenuProvider)_provider.Menus).Update(axMenu, msi);
+            return new { success = true, operation = "add-menu-item-to-menu", objectName = menuName, menuItemName, menuItemType = itemType, api = "IMetaMenuProvider.Update" };
+        }
+
+        // ========================
         // FORM: ADD CONTROL / ADD DATA SOURCE
         // ========================
 

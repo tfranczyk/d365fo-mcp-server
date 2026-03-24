@@ -494,6 +494,16 @@ export class BridgeClient extends EventEmitter {
     return this.call<BridgeWriteResult>('addDataSource', { objectType, objectName, dataSourceName: dsName, dataSourceTable: table, joinSource, linkType });
   }
 
+  /** Add/update a field modification in a table-extension (override base-table field label/mandatory) */
+  async addFieldModification(extensionName: string, fieldName: string, fieldLabel?: string, fieldMandatory?: boolean): Promise<BridgeWriteResult> {
+    return this.call<BridgeWriteResult>('addFieldModification', { objectName: extensionName, fieldName, fieldLabel, fieldMandatory });
+  }
+
+  /** Add a menu item reference to a menu */
+  async addMenuItemToMenu(menuName: string, menuItemToAdd: string, menuItemToAddType?: string): Promise<BridgeWriteResult> {
+    return this.call<BridgeWriteResult>('addMenuItemToMenu', { objectName: menuName, menuItemToAdd, menuItemToAddType: menuItemToAddType ?? 'display' });
+  }
+
   // ========================================
   // Delete, Batch, Capabilities, Pattern Discovery
   // ========================================

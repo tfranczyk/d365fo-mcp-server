@@ -376,12 +376,11 @@ describe('modify_d365fo_file', () => {
 
   beforeEach(() => { ctx = buildContext(); });
 
-  it('adds a method to an existing class file', async () => {
+  it('returns bridge-required error when bridge is not available', async () => {
     const fsMod = await import('fs/promises');
     (fsMod.readFile as any).mockResolvedValueOnce(
       `<?xml version="1.0"?><AxClass><Name>ExistingClass</Name><SourceCode><Declaration><![CDATA[public class ExistingClass {}]]></Declaration><Methods /></SourceCode></AxClass>`,
     );
-    (fsMod.writeFile as any).mockResolvedValueOnce(undefined);
 
     const result = await modifyD365FileTool(
       req('modify_d365fo_file', {
@@ -394,7 +393,8 @@ describe('modify_d365fo_file', () => {
       }),
       ctx,
     );
-    expect(result.isError).toBeFalsy();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/bridge is not available/i);
   });
 
   it('returns error when required args are missing', async () => {
@@ -422,7 +422,7 @@ describe('modify_d365fo_file', () => {
     expect(result.content[0].text).toMatch(/cannot read|error|file/i);
   });
 
-  it('replace-code replaces a snippet inside an existing method', async () => {
+  it('replace-code returns bridge-required error without bridge', async () => {
     const fsMod = await import('fs/promises');
     (fsMod.readFile as any).mockResolvedValueOnce(
       `<?xml version="1.0"?><AxClass><Name>MyClass</Name><SourceCode>` +
@@ -430,7 +430,6 @@ describe('modify_d365fo_file', () => {
       `<Methods><Method><Name>run</Name><Source><![CDATA[public void run()\n{\n    return false;\n}]]></Source></Method></Methods>` +
       `</SourceCode></AxClass>`,
     );
-    (fsMod.writeFile as any).mockResolvedValueOnce(undefined);
 
     const result = await modifyD365FileTool(
       req('modify_d365fo_file', {
@@ -444,13 +443,11 @@ describe('modify_d365fo_file', () => {
       }),
       ctx,
     );
-    expect(result.isError).toBeFalsy();
-    const written = (fsMod.writeFile as any).mock.calls.at(-1)[1] as Buffer;
-    expect(written.toString('utf-8')).toContain('return true;');
-    expect(written.toString('utf-8')).not.toContain('return false;');
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/bridge is not available/i);
   });
 
-  it('replace-code returns error when oldCode is not found', async () => {
+  it('replace-code returns bridge-required error when oldCode is not found (no bridge)', async () => {
     const fsMod = await import('fs/promises');
     (fsMod.readFile as any).mockResolvedValueOnce(
       `<?xml version="1.0"?><AxClass><Name>MyClass</Name><SourceCode>` +
@@ -472,6 +469,6 @@ describe('modify_d365fo_file', () => {
       ctx,
     );
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/oldCode not found/i);
+    expect(result.content[0].text).toMatch(/bridge is not available/i);
   });
 });

@@ -609,6 +609,32 @@ namespace D365MetadataBridge.Protocol
                                 request.GetStringParam("linkType"));
                         });
 
+                    case "addfieldmodification":
+                        return HandleWrite(request, () =>
+                        {
+                            var objectName = request.GetStringParam("objectName")
+                                ?? throw new ArgumentException("Missing: objectName");
+                            return _writeService!.AddFieldModification(objectName,
+                                request.GetStringParam("fieldName")
+                                    ?? throw new ArgumentException("Missing: fieldName"),
+                                request.GetStringParam("fieldLabel") ?? request.GetStringParam("label"),
+                                request.GetBoolParam("fieldMandatory") ?? request.GetBoolParam("mandatory"));
+                        });
+
+                    case "addmenuitemtomenu":
+                        return HandleWrite(request, () =>
+                        {
+                            var objectName = request.GetStringParam("objectName")
+                                ?? throw new ArgumentException("Missing: objectName");
+                            return _writeService!.AddMenuItemToMenu(objectName,
+                                request.GetStringParam("menuItemToAdd")
+                                    ?? request.GetStringParam("menuItemName")
+                                    ?? throw new ArgumentException("Missing: menuItemToAdd"),
+                                request.GetStringParam("menuItemToAddType")
+                                    ?? request.GetStringParam("menuItemType")
+                                    ?? "display");
+                        });
+
                     // === Batch Modify (multiple operations in one call) ===
                     case "batchmodify":
                         return HandleBatchModify(request);
@@ -905,6 +931,21 @@ namespace D365MetadataBridge.Protocol
                                     S("methodName"),
                                     S("oldCode") ?? throw new ArgumentException("Missing: oldCode"),
                                     S("newCode") ?? throw new ArgumentException("Missing: newCode"));
+                                break;
+
+                            case "addfieldmodification":
+                            case "add-field-modification":
+                                writeResult = _writeService.AddFieldModification(objectName,
+                                    S("fieldName") ?? throw new ArgumentException("Missing: fieldName"),
+                                    S("fieldLabel") ?? S("label"),
+                                    B("fieldMandatory") ?? B("mandatory"));
+                                break;
+
+                            case "addmenuitemtomenu":
+                            case "add-menu-item-to-menu":
+                                writeResult = _writeService.AddMenuItemToMenu(objectName,
+                                    S("menuItemToAdd") ?? S("menuItemName") ?? throw new ArgumentException("Missing: menuItemToAdd"),
+                                    S("menuItemToAddType") ?? S("menuItemType") ?? "display");
                                 break;
 
                             default:

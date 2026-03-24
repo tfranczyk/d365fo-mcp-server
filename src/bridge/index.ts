@@ -58,6 +58,8 @@ export {
   bridgeAddDataSource,
   bridgeSetProperty,
   bridgeReplaceCode,
+  bridgeAddFieldModification,
+  bridgeAddMenuItemToMenu,
   bridgeDeleteObject,
   bridgeBatchModify,
   bridgeGetCapabilities,

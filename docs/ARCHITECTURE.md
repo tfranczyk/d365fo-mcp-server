@@ -106,7 +106,7 @@ sequenceDiagram
         MCP->>Handler: Route to Handler
         Handler->>Tool: Execute Tool
         alt Read Operation (get_table_info, get_class_info, ...)
-            Tool->>Bridge: tryBridge*() — bridge-primary (10 tools)
+            Tool->>Bridge: tryBridge*() — bridge-primary (12 tools)
             alt Bridge Available & Object Found
                 Bridge-->>Tool: Live Metadata Result
             else Bridge Unavailable
@@ -120,11 +120,11 @@ sequenceDiagram
                 end
             end
         else Write Operation (create_d365fo_file, modify_d365fo_file)
-            Tool->>Bridge: bridge*() — 18 create types, 23 of 25 modify ops
+            Tool->>Bridge: bridge*() — 18 create types, 25 of 25 modify ops
             alt Bridge Available & Type Supported
                 Bridge-->>Tool: Write Result (file path)
-            else Bridge Unavailable or Unsupported Type
-                Tool->>Tool: TypeScript XML generation / xml2js modify (fallback)
+            else Bridge Unavailable
+                Tool->>Tool: Error — bridge is required for all modify operations
             end
         else Index Maintenance (update_symbol_index, undo_last_modification)
             Tool->>DB: Remove stale symbols + labels from SQLite
@@ -229,7 +229,7 @@ graph LR
 
     subgraph "C# Metadata Bridge — Windows only"
         BCLIENT[bridgeClient.ts - JSON-RPC child process]
-        BADAPT[bridgeAdapter.ts - 12 tryBridge* read + 28 bridge* write]
+        BADAPT[bridgeAdapter.ts - 12 tryBridge* read + 30 bridge* write]
         BTYPES[bridgeTypes.ts - Response types incl. BridgeWriteResult, BridgeDeleteResult, BridgeCapabilities]
     end
 

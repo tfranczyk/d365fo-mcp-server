@@ -867,6 +867,7 @@ const BRIDGE_MODIFY_OPS = new Set([
   'add-enum-value', 'modify-enum-value', 'remove-enum-value',
   'add-control', 'add-data-source',
   'add-display-method', 'add-table-method',
+  'add-field-modification', 'add-menu-item-to-menu',
 ]);
 
 /**
@@ -1489,6 +1490,66 @@ export async function bridgeDeleteObject(
     }
   } catch (e) {
     console.error(`[BridgeAdapter] deleteObject(${objectType}, ${objectName}) failed: ${e}`);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// TABLE-EXTENSION: ADD FIELD MODIFICATION
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Adds or updates a FieldModification entry in a table-extension via the C# bridge.
+ * Allows overriding Label / Mandatory on a base-table field.
+ */
+export async function bridgeAddFieldModification(
+  bridge: BridgeClient | undefined,
+  extensionName: string,
+  fieldName: string,
+  fieldLabel?: string,
+  fieldMandatory?: boolean,
+): Promise<{ success: boolean; message: string } | null> {
+  if (!bridge?.isReady || !bridge.metadataAvailable) return null;
+
+  try {
+    const result = await bridge.addFieldModification(extensionName, fieldName, fieldLabel, fieldMandatory);
+    return {
+      success: result.success,
+      message: result.success
+        ? `✅ Field modification '${fieldName}' applied via ${result.api}`
+        : `Bridge addFieldModification returned success=false`,
+    };
+  } catch (e) {
+    console.error(`[BridgeAdapter] addFieldModification(${extensionName}, ${fieldName}) failed: ${e}`);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// MENU: ADD MENU ITEM TO MENU
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Adds a menu item reference to a menu via the C# bridge.
+ */
+export async function bridgeAddMenuItemToMenu(
+  bridge: BridgeClient | undefined,
+  menuName: string,
+  menuItemToAdd: string,
+  menuItemToAddType?: string,
+): Promise<{ success: boolean; message: string } | null> {
+  if (!bridge?.isReady || !bridge.metadataAvailable) return null;
+
+  try {
+    const result = await bridge.addMenuItemToMenu(menuName, menuItemToAdd, menuItemToAddType);
+    return {
+      success: result.success,
+      message: result.success
+        ? `✅ Menu item '${menuItemToAdd}' added via ${result.api}`
+        : `Bridge addMenuItemToMenu returned success=false`,
+    };
+  } catch (e) {
+    console.error(`[BridgeAdapter] addMenuItemToMenu(${menuName}, ${menuItemToAdd}) failed: ${e}`);
     return null;
   }
 }
