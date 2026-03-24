@@ -201,11 +201,16 @@ structure, encoding, and AOT path.
 
 | Tool | Adapter Function | Supported Types | Bridge API |
 |---|---|---|---|
-| `create_d365fo_file` | `bridgeCreateObject()` | class, table, enum, edt, query, view, menu-item-action/display/output, security-privilege/duty/role | `IMetaXxxProvider.Create()` |
-| `modify_d365fo_file` | `bridgeAddMethod()` | class, table, enum, edt, form, query, view | Read → Modify → `Update()` |
-| `modify_d365fo_file` | `bridgeAddField()` | table | Read → Modify → `Update()` |
-| `modify_d365fo_file` | `bridgeSetProperty()` | class, table, enum, edt, form, query, view, menu-item-action/display/output | Read → Modify → `Update()` |
-| `modify_d365fo_file` | `bridgeReplaceCode()` | class, table, enum, edt, form, query, view | Read → Modify → `Update()` |
+| `create_d365fo_file` | `bridgeCreateObject()` | 18 types: class, class-extension, table, enum, edt, query, view, form, table/form/enum-extension, menu, 3 menu-items, 3 security | `IMetaXxxProvider.Create()` |
+| `modify_d365fo_file` | `bridgeAddMethod()` / `bridgeRemoveMethod()` | class, table, form, query, view | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddField()` / `bridgeModifyField()` / `bridgeRenameField()` / `bridgeRemoveField()` / `bridgeReplaceAllFields()` | table | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddIndex()` / `bridgeRemoveIndex()` | table | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddRelation()` / `bridgeRemoveRelation()` | table | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddFieldGroup()` / `bridgeRemoveFieldGroup()` / `bridgeAddFieldToFieldGroup()` | table | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddEnumValue()` / `bridgeModifyEnumValue()` / `bridgeRemoveEnumValue()` | enum | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeAddControl()` / `bridgeAddDataSource()` | form | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeSetProperty()` | class, table, enum, edt, form, query, view, menu-items | Read → Modify → `Update()` |
+| `modify_d365fo_file` | `bridgeReplaceCode()` | class, table, form, query, view | Read → Modify → `Update()` |
 | (internal) | `bridgeDeleteObject()` | class, table, enum, edt | `IMetaXxxProvider.Delete()` |
 | (internal) | `bridgeBatchModify()` | class, table, enum, edt | Multiple operations in one call |
 | (internal) | `bridgeGetCapabilities()` | — | Reports supported types + operations |
@@ -223,17 +228,17 @@ if (!args.xmlContent && context?.bridge && canBridgeCreate(args.objectType)) {
 ```
 
 ```typescript
-// In modifyD365File.ts — for supported operations:
-if (!dryRun && context?.bridge && canBridgeModify(objectType, operation)) {
-  const result = await bridgeAddMethod(context.bridge, objectType, objectName, ...);
-  if (result?.success) return result;   // ✅ Bridge modified the file
+// In modifyD365File.ts — bridge is now the ONLY write path:
+if (!context?.bridge) {
+  throw new Error('C# metadata bridge is not available...');
 }
-// Fall through to xml2js-based modification
+if (!canBridgeModify(objectType, operation)) {
+  throw new Error(`Operation "${operation}" is not bridged...`);
+}
+const result = await bridgeAddMethod(context.bridge, objectType, objectName, ...);
+if (!result?.success) throw new Error('Bridge operation failed');
+// No xml2js fallback — bridge handles all 25 modify operations.
 ```
-
-> **Note:** `dryRun` mode always uses the TypeScript xml2js path because the bridge
-> writes directly to disk via `IMetadataProvider.Update()` — it cannot produce a
-> diff preview without making changes.
 
 ### Tools NOT Using the Bridge
 
@@ -242,8 +247,7 @@ These tools use specialized logic that doesn't benefit from the bridge:
 - `generate_smart_table`, `generate_smart_form`, `generate_smart_report` — AI code generation
 - `analyze_extension_points`, `recommend_extension_strategy` — analysis heuristics
 - `find_coc_extensions`, `find_event_handlers` — SQLite FTS pattern matching
-- `create_d365fo_file` for forms, reports, extensions — remain in TypeScript
-- `modify_d365fo_file` for add-index, add-relation, add-field-group, add-control, rename-field — remain in xml2js
+- `create_d365fo_file` for report, data-entity, tile, kpi, business-event — remain in TypeScript XML generation
 - `update_symbol_index` — SQLite + Redis cache invalidation (bridge is refreshed but not used for indexing)
 - `undo_last_modification` — git operations + index cleanup (uses bridge refresh only)
 
@@ -275,23 +279,33 @@ typed.Create(axClass, modelSaveInfo);
 
 ### Supported Object Types
 
-| Object Type | Create | Modify (add-method, add-field, set-property, replace-code) |
+| Object Type | Create | Modify (25 of 25 operations bridged) |
 |---|---|---|
-| Class | ✅ `IMetaClassProvider.Create()` | ✅ Read → Modify → `Update()` |
-| Table | ✅ `IMetaTableProvider.Create()` | ✅ Read → Modify → `Update()` |
-| Enum | ✅ `IMetaEnumProvider.Create()` | ✅ Read → Modify → `Update()` |
-| EDT | ✅ `IMetaEdtProvider.Create()` | ✅ Read → Modify → `Update()` |
-| Query | ✅ `IMetaQueryProvider.Create()` | ✅ Read → Modify → `Update()` |
-| View | ✅ `IMetaViewProvider.Create()` | ✅ Read → Modify → `Update()` |
+| Class | ✅ `IMetaClassProvider.Create()` | ✅ add/remove-method, set-property, replace-code |
+| Class Extension | ✅ (via CreateClass) | — |
+| Table | ✅ `IMetaTableProvider.Create()` | ✅ All field/index/relation/fieldgroup/method operations |
+| Enum | ✅ `IMetaEnumProvider.Create()` | ✅ add/modify/remove-enum-value, set-property |
+| EDT | ✅ `IMetaEdtProvider.Create()` | ✅ set-property |
+| Query | ✅ `IMetaQueryProvider.Create()` | ✅ add/remove-method, set-property, replace-code |
+| View | ✅ `IMetaViewProvider.Create()` | ✅ add/remove-method, set-property, replace-code |
+| Form | ✅ `IMetaFormProvider.Create()` | ✅ add/remove-method, set-property, replace-code, add-control, add-data-source |
+| Menu | ✅ `IMetaMenuProvider.Create()` | — |
 | Menu Item (Action) | ✅ `IMetaMenuItemActionProvider.Create()` | ✅ set-property via `Update()` |
 | Menu Item (Display) | ✅ `IMetaMenuItemDisplayProvider.Create()` | ✅ set-property via `Update()` |
 | Menu Item (Output) | ✅ `IMetaMenuItemOutputProvider.Create()` | ✅ set-property via `Update()` |
 | Security Privilege | ✅ `IMetaSecurityPrivilegeProvider.Create()` | — (xml2js) |
 | Security Duty | ✅ `IMetaSecurityDutyProvider.Create()` | — (xml2js) |
 | Security Role | ✅ `IMetaSecurityRoleProvider.Create()` | — (xml2js) |
-| Form | — (TypeScript XML) | ✅ add-method, set-property, replace-code via `Update()` |
+| Table Extension | ✅ `IMetaTableExtensionProvider.Create()` | ✅ All field/index/relation/fieldgroup/method ops + add-field-modification |
+| Form Extension | ✅ `IMetaFormExtensionProvider.Create()` | ✅ add/remove-method, add-control, add-data-source |
+| Enum Extension | ✅ `IMetaEnumExtensionProvider.Create()` | ✅ add/modify/remove-enum-value |
+| Menu | ✅ `IMetaMenuProvider.Create()` | ✅ add-menu-item-to-menu |
 | Report | — (TypeScript XML) | — (xml2js) |
-| Extensions | — (TypeScript XML) | — (xml2js) |
+| Data Entity | — (TypeScript XML) | — (xml2js) |
+
+> **All 25 modify operations are now bridged.** The `dryRun` parameter has been removed —
+> the bridge writes directly via `IMetadataProvider.Update()`. Use `get_method_source()`
+> after modifying to verify changes.
 
 ### ModelSaveInfo Resolution
 
@@ -321,8 +335,8 @@ create_d365fo_file("class", "MyClass", ...)
   │   └─ ✅ Return { success: true, filePath: "..." }
   └─ Early return with bridge result
 
-create_d365fo_file("form", "MyForm", ...)
-  ├─ canBridgeCreate("form") → false
+create_d365fo_file("report", "MyReport", ...)
+  ├─ canBridgeCreate("report") → false
   └─ Skip bridge → TypeScript XmlTemplateGenerator.generate(...)
 ```
 
@@ -522,8 +536,30 @@ existing ones. Uses the same provider instance as `MetadataReadService` via the
 | `CreateSecurityPrivilege(name, model, ...)` | AxSecurityPrivilege | `IMetaSecurityPrivilegeProvider.Create()` |
 | `CreateSecurityDuty(name, model, ...)` | AxSecurityDuty | `IMetaSecurityDutyProvider.Create()` |
 | `CreateSecurityRole(name, model, ...)` | AxSecurityRole | `IMetaSecurityRoleProvider.Create()` |
+| `CreateTableExtension(name, model, ...)` | AxTableExtension | `IMetaTableExtensionProvider.Create()` |
+| `CreateFormExtension(name, model, ...)` | AxFormExtension | `IMetaFormExtensionProvider.Create()` |
+| `CreateEnumExtension(name, model, ...)` | AxEnumExtension | `IMetaEnumExtensionProvider.Create()` |
+| `CreateForm(name, model, ...)` | AxForm | `IMetaFormProvider.Create()` |
+| `CreateMenu(name, model, ...)` | AxMenu | `IMetaMenuProvider.Create()` |
 | `AddMethod(type, name, methodName, source)` | class/table/form/query/view | Read → `Update()` |
+| `RemoveMethod(type, name, methodName)` | class/table/form/query/view | Read → `Update()` |
 | `AddField(tableName, fieldName, fieldType, ...)` | table | Read → `Update()` |
+| `ModifyField(tableName, fieldName, properties)` | table | Read → `Update()` |
+| `RenameField(tableName, oldName, newName)` | table | Read → `Update()` |
+| `RemoveField(tableName, fieldName)` | table | Read → `Update()` |
+| `ReplaceAllFields(tableName, fields[])` | table | Read → `Update()` |
+| `AddIndex(tableName, indexName, fields, ...)` | table | Read → `Update()` |
+| `RemoveIndex(tableName, indexName)` | table | Read → `Update()` |
+| `AddRelation(tableName, relationName, ...)` | table | Read → `Update()` |
+| `RemoveRelation(tableName, relationName)` | table | Read → `Update()` |
+| `AddFieldGroup(tableName, groupName, ...)` | table | Read → `Update()` |
+| `RemoveFieldGroup(tableName, groupName)` | table | Read → `Update()` |
+| `AddFieldToFieldGroup(tableName, group, field)` | table | Read → `Update()` |
+| `AddEnumValue(enumName, valueName, value, ...)` | enum | Read → `Update()` |
+| `ModifyEnumValue(enumName, valueName, ...)` | enum | Read → `Update()` |
+| `RemoveEnumValue(enumName, valueName)` | enum | Read → `Update()` |
+| `AddControl(formName, controlName, ...)` | form | Read → `Update()` |
+| `AddDataSource(type, name, dsName, table, ...)` | form | Read → `Update()` |
 | `SetProperty(type, name, path, value)` | class/table/enum/edt/form/query/view/menu-items | Read → `Update()` |
 | `ReplaceCode(type, name, method, old, new)` | class/table/form/query/view | Read → `Update()` |
 | `DeleteObject(type, name, model)` | class/table/enum/edt | `IMetaXxxProvider.Delete()` |
@@ -570,7 +606,7 @@ src/bridge/
 ├── index.ts              Barrel exports for all bridge types and functions
 ├── bridgeClient.ts       BridgeClient class — spawn, JSON-RPC, typed methods
 ├── bridgeTypes.ts        ~50 TypeScript interfaces matching C# models (incl. write, delete, batch, capabilities types)
-└── bridgeAdapter.ts      12 tryBridge*() read adapters + 11 bridge*() write adapters (create/modify/delete/batch/capabilities/patterns)
+└── bridgeAdapter.ts      12 tryBridge*() read adapters + 30 bridge*() write adapters (create/17 modify ops/delete/batch/capabilities/patterns)
 ```
 
 ### BridgeClient (`bridgeClient.ts`)
@@ -581,7 +617,7 @@ Singleton class managing the child process lifecycle:
 - **`call<T>(method, params)`** — Sends JSON-RPC request, returns typed promise (60s timeout)
 - **`dispose()`** — Gracefully shuts down the child process
 - **14 typed read methods** — `readTable()`, `readClass()`, `findReferences()`, etc.
-- **9 typed write methods** — `createObject()`, `addMethod()`, `addField()`, `setProperty()`, `replaceCode()`, `deleteObject()`, `batchModify()`, `getCapabilities()`, `discoverFormPatterns()`
+- **28 typed write methods** — `createObject()`, `addMethod()`, `removeMethod()`, `addField()`, `modifyField()`, `renameField()`, `removeField()`, `replaceAllFields()`, `addIndex()`, `removeIndex()`, `addRelation()`, `removeRelation()`, `addFieldGroup()`, `removeFieldGroup()`, `addFieldToFieldGroup()`, `addEnumValue()`, `modifyEnumValue()`, `removeEnumValue()`, `addControl()`, `addDataSource()`, `setProperty()`, `replaceCode()`, `deleteObject()`, `batchModify()`, `getCapabilities()`, `discoverFormPatterns()`, `addFieldModification()`, `addMenuItemToMenu()`
 
 Properties:
 - `isReady` — Process is running and initialized
@@ -608,7 +644,7 @@ interface BridgeTableInfo {
 
 ### Bridge Adapter (`bridgeAdapter.ts`)
 
-Twelve `tryBridge*()` read functions plus eleven `bridge*()` write functions. Each:
+Twelve `tryBridge*()` read functions plus twenty-eight `bridge*()` write functions. Each:
 
 1. Checks `bridge?.isReady` (and `bridge.metadataAvailable` or `bridge.xrefAvailable`)
 2. Calls the appropriate bridge method
@@ -668,7 +704,24 @@ so the AI client can distinguish it from SQLite-sourced data.
 |---|---|---|---|
 | `createObject` | `objectType`, `objectName`, `modelName`, `declaration?`, `methods?`, `fields?`, `values?`, `properties?` | `BridgeWriteResult` | `IMetaXxxProvider.Create()` |
 | `addMethod` | `objectType`, `objectName`, `methodName`, `sourceCode` | `BridgeWriteResult` | Read → `Update()` |
+| `removeMethod` | `objectType`, `objectName`, `methodName` | `BridgeWriteResult` | Read → `Update()` |
 | `addField` | `objectName`, `fieldName`, `fieldType`, `edt?`, `mandatory?`, `label?` | `BridgeWriteResult` | Read → `Update()` |
+| `modifyField` | `objectName`, `fieldName`, `properties` | `BridgeWriteResult` | Read → `Update()` |
+| `renameField` | `objectName`, `fieldName`, `fieldNewName` | `BridgeWriteResult` | Read → `Update()` |
+| `removeField` | `objectName`, `fieldName` | `BridgeWriteResult` | Read → `Update()` |
+| `replaceAllFields` | `objectName`, `fields[]` | `BridgeWriteResult` | Read → `Update()` |
+| `addIndex` | `objectName`, `indexName`, `fields[]`, `allowDuplicates?`, `alternateKey?` | `BridgeWriteResult` | Read → `Update()` |
+| `removeIndex` | `objectName`, `indexName` | `BridgeWriteResult` | Read → `Update()` |
+| `addRelation` | `objectName`, `relationName`, `relatedTable`, `constraints[]` | `BridgeWriteResult` | Read → `Update()` |
+| `removeRelation` | `objectName`, `relationName` | `BridgeWriteResult` | Read → `Update()` |
+| `addFieldGroup` | `objectName`, `fieldGroupName`, `label?`, `fields[]` | `BridgeWriteResult` | Read → `Update()` |
+| `removeFieldGroup` | `objectName`, `fieldGroupName` | `BridgeWriteResult` | Read → `Update()` |
+| `addFieldToFieldGroup` | `objectName`, `fieldGroupName`, `fieldName` | `BridgeWriteResult` | Read → `Update()` |
+| `addEnumValue` | `objectName`, `enumValueName`, `enumValue`, `label?` | `BridgeWriteResult` | Read → `Update()` |
+| `modifyEnumValue` | `objectName`, `enumValueName`, `properties` | `BridgeWriteResult` | Read → `Update()` |
+| `removeEnumValue` | `objectName`, `enumValueName` | `BridgeWriteResult` | Read → `Update()` |
+| `addControl` | `objectName`, `controlName`, `parentControl`, `controlType`, ... | `BridgeWriteResult` | Read → `Update()` |
+| `addDataSource` | `objectType`, `objectName`, `dataSourceName`, `dataSourceTable`, ... | `BridgeWriteResult` | Read → `Update()` |
 | `setProperty` | `objectType`, `objectName`, `propertyPath`, `propertyValue` | `BridgeWriteResult` | Read → `Update()` |
 | `replaceCode` | `objectType`, `objectName`, `methodName?`, `oldCode`, `newCode` | `BridgeWriteResult` | Read → `Update()` |
 | `deleteObject` | `objectType`, `objectName`, `modelName` | `BridgeDeleteResult` | `IMetaXxxProvider.Delete()` |

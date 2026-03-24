@@ -3507,8 +3507,10 @@ export async function handleCreateD365File(
     }
 
     // ── Phase 4: Bridge-first creation via IMetadataProvider.Create() ──
-    // For class/table/enum/edt: try C# bridge first (correct XML guaranteed by API).
-    // Falls back to TypeScript XML generation if bridge unavailable or unsupported type.
+    // For 18 supported types (class, class-extension, table, enum, edt, query, view, form,
+    // menu, 3 menu-items, 3 security, table/form/enum-extension): try C# bridge first.
+    // Falls back to TypeScript XML generation if bridge unavailable or unsupported type
+    // (report, data-entity, tile, kpi, business-event, etc.).
     if (!args.xmlContent && context?.bridge && actualModelName && canBridgeCreate(args.objectType)) {
       try {
         // Prepare parameters for the bridge
