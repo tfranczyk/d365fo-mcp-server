@@ -65,7 +65,7 @@ const CreateLabelArgsSchema = z.object({
     .optional()
     .describe(
       'Label description written as the comment line in .label.txt. ' +
-      'Defaults to the VS project name (from .rnrproj) when omitted. ' +
+      'Defaults to the model/project name when omitted. ' +
       'Per-translation comment and defaultComment take priority over this.',
     ),
   defaultComment: z
@@ -181,11 +181,8 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
       updateIndex,
     } = args;
 
-    // Description fallback: explicit description → project name → model name
-    const configManager = getConfigManager();
-    const projectPath = await configManager.getProjectPath();
-    const projectName = projectPath ? path.parse(projectPath).name : null;
-    const effectiveDescription = description ?? projectName ?? model;
+    // Description fallback: explicit description → model name
+    const effectiveDescription = description ?? model;
     const { symbolIndex } = context;
 
     // 0. Cross-label-file collision check — warn when the same labelId exists in
@@ -228,6 +225,7 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
 
     // 1. Resolve model directory
     // Package name can differ from model name in any environment (not just UDE).
+    const configManager = getConfigManager();
     const envType = await configManager.getDevEnvironmentType();
 
     let resolvedPackagePath: string;
@@ -485,7 +483,7 @@ export const createLabelToolDefinition = {
       },
       description: {
         type: 'string',
-        description: 'Label description (comment line in .label.txt). Defaults to the VS project name when omitted. Per-translation comment and defaultComment take priority.',
+        description: 'Label description (comment line in .label.txt). Defaults to the model/project name when omitted. Per-translation comment and defaultComment take priority.',
       },
       packagePath: {
         type: 'string',

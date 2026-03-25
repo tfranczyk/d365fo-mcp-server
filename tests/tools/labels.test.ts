@@ -27,18 +27,17 @@ vi.mock('fs', async (orig) => {
   };
 });
 
-const mockConfigMgr = {
-  ensureLoaded: vi.fn(async () => {}),
-  getPackagePath: vi.fn(() => 'K:\\PackagesLocalDirectory'),
-  getModelName: vi.fn(() => 'MyModel'),
-  getPackageNameFromWorkspacePath: vi.fn(() => 'MyPackage'),
-  getProjectPath: vi.fn(async () => 'K:\\repos\\MySolution\\MyProject\\MyProject.rnrproj'),
-  getDevEnvironmentType: vi.fn(async () => 'traditional'),
-  getCustomPackagesPath: vi.fn(async () => null),
-  getMicrosoftPackagesPath: vi.fn(async () => null),
-};
 vi.mock('../../src/utils/configManager', () => ({
-  getConfigManager: vi.fn(() => mockConfigMgr),
+  getConfigManager: vi.fn(() => ({
+    ensureLoaded: vi.fn(async () => {}),
+    getPackagePath: vi.fn(() => 'K:\\PackagesLocalDirectory'),
+    getModelName: vi.fn(() => 'MyModel'),
+    getPackageNameFromWorkspacePath: vi.fn(() => 'MyPackage'),
+    getProjectPath: vi.fn(async () => null),
+    getDevEnvironmentType: vi.fn(async () => 'traditional'),
+    getCustomPackagesPath: vi.fn(async () => null),
+    getMicrosoftPackagesPath: vi.fn(async () => null),
+  })),
 }));
 
 vi.mock('../../src/utils/packageResolver', () => ({
@@ -257,7 +256,7 @@ describe('create_label', () => {
     expect(result.isError).toBe(true);
   });
 
-  it('defaults description to VS project name when no comment is provided', async () => {
+  it('defaults description to model name when no comment is provided', async () => {
     const fsMock = await import('fs');
     const writeCalls: string[] = [];
     (fsMock.promises.writeFile as any).mockImplementation(async (_p: string, content: string) => {
@@ -277,35 +276,8 @@ describe('create_label', () => {
       ctx,
     );
     expect(result.isError).toBeFalsy();
-    // The written content should contain the project name (from .rnrproj path) as comment
+    // The written content should contain the model name as comment
     const labelWrite = writeCalls.find(c => c.includes('TestDesc='));
-    expect(labelWrite).toContain(' ;MyProject');
-  });
-
-  it('falls back to model name when no project path is available', async () => {
-    const fsMock = await import('fs');
-    const writeCalls: string[] = [];
-    (fsMock.promises.writeFile as any).mockImplementation(async (_p: string, content: string) => {
-      writeCalls.push(content);
-    });
-    (fsMock.promises.readdir as any).mockResolvedValueOnce(['en-US']);
-    (fsMock.promises.readFile as any).mockResolvedValueOnce('\uFEFF');
-
-    // Override getProjectPath to return null for this test
-    mockConfigMgr.getProjectPath.mockResolvedValueOnce(null);
-
-    const result = await createLabelTool(
-      req('create_label', {
-        labelId: 'TestDescFallback',
-        labelFileId: 'MyModel',
-        model: 'MyModel',
-        updateIndex: false,
-        translations: [{ language: 'en-US', text: 'Fallback label' }],
-      }),
-      ctx,
-    );
-    expect(result.isError).toBeFalsy();
-    const labelWrite = writeCalls.find(c => c.includes('TestDescFallback='));
     expect(labelWrite).toContain(' ;MyModel');
   });
 

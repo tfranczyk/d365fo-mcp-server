@@ -1674,7 +1674,7 @@ Examples:
               },
               description: {
                 type: 'string',
-                description: 'Label description (comment line in .label.txt). Defaults to the VS project name when omitted. Per-translation comment and defaultComment take priority.',
+                description: 'Label description (comment line in .label.txt). Defaults to the model/project name when omitted. Per-translation comment and defaultComment take priority.',
               },
               packagePath: {
                 type: 'string',
