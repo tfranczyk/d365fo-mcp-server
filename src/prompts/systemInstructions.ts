@@ -440,6 +440,9 @@ All generated X++ code MUST pass the D365FO Best Practice checker without warnin
 ### BPErrorUnknownLabel — Labels must exist before reference
 - Always call \`create_label()\` before referencing \`@ModelName:LabelId\` in code
 - Verify with \`search_labels()\` that the label was created successfully
+- \`create_label\` automatically adds AxLabelFile XML descriptors to the VS project (.rnrproj) via \`addToProject=true\` (default)
+- If the tool response shows "Could not add label descriptors to VS project", pass \`projectPath\` explicitly or set it in \`.mcp.json\`
+- NEVER tell the user that \`create_label\` cannot add labels to the project — it CAN
 
 ### BPXmlDocNoDocumentationComments — All public/protected members need meaningful doc comments
 - Every public/protected class declaration and method MUST have \`/// <summary>\` documentation

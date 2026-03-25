@@ -20,6 +20,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { getConfigManager } from '../utils/configManager.js';
 import { PackageResolver } from '../utils/packageResolver.js';
+import { ProjectFileManager, ProjectFileFinder } from './createD365File.js';
 
 // UTF-8 BOM (Byte Order Mark)
 const UTF8_BOM = '\uFEFF';
@@ -65,8 +66,8 @@ const CreateLabelArgsSchema = z.object({
     .optional()
     .describe(
       'Label description written as the comment line in .label.txt. ' +
-      'Defaults to the model/project name when omitted. ' +
-      'Per-translation comment and defaultComment take priority over this.',
+      'Defaults to the VS project name (from .rnrproj) when omitted, ' +
+      'then falls back to labelFileId. Per-translation comment and defaultComment take priority over this.',
     ),
   defaultComment: z
     .string()
@@ -76,6 +77,19 @@ const CreateLabelArgsSchema = z.object({
     .string()
     .optional()
     .describe('Root packages path. Auto-detected from environment config if omitted.'),
+  projectPath: z
+    .string()
+    .optional()
+    .describe('Path to the .rnrproj project file. Auto-detected from .mcp.json if omitted.'),
+  solutionPath: z
+    .string()
+    .optional()
+    .describe('Path to the .sln solution directory. Used as fallback to find .rnrproj if projectPath is not set.'),
+  addToProject: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe('Add label file XML descriptors to the VS project (.rnrproj) so builds detect them (default: true)'),
   createLabelFileIfMissing: z
     .boolean()
     .optional()
@@ -181,8 +195,19 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
       updateIndex,
     } = args;
 
-    // Description fallback: explicit description → model name
-    const effectiveDescription = description ?? model;
+    // Description fallback: explicit description → VS project name → labelFileId
+    // Model name is not useful here — it's typically identical to labelFileId.
+    const configManager = getConfigManager();
+    await configManager.ensureLoaded();
+    let projectName: string | null = null;
+    try {
+      const projPath = args.projectPath || await configManager.getProjectPath() || null;
+      if (projPath) {
+        const baseName = path.basename(projPath);
+        projectName = baseName.replace(/\.rnrproj$/i, '');
+      }
+    } catch { /* non-fatal */ }
+    const effectiveDescription = description ?? projectName ?? labelFileId;
     const { symbolIndex } = context;
 
     // 0. Cross-label-file collision check — warn when the same labelId exists in
@@ -225,7 +250,6 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
 
     // 1. Resolve model directory
     // Package name can differ from model name in any environment (not just UDE).
-    const configManager = getConfigManager();
     const envType = await configManager.getDevEnvironmentType();
 
     let resolvedPackagePath: string;
@@ -389,23 +413,79 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
       }
     }
 
-    // 5. Update SQLite index
+    // 5. Update SQLite index (skip immediate FTS rebuild — schedule debounced)
     if (updateIndex && indexEntries.length > 0) {
-      symbolIndex.bulkAddLabels(indexEntries);
+      symbolIndex.bulkAddLabels(indexEntries, { skipFtsRebuild: true });
+      symbolIndex.scheduleLabelsFtsRebuild();
+    }
+
+    // 5b. Add label file descriptors to VS project (.rnrproj) so builds detect them
+    const addedToProject: string[] = [];
+    let projectWarning = '';
+    let projectAlreadyOk = false;
+    if (args.addToProject && (written.length > 0 || existingLanguages.length > 0)) {
+      // Resolve projectPath with the same fallback chain as create_d365fo_file:
+      // 1. Explicit arg  2. configManager  3. solutionPath + ProjectFileFinder scan
+      let projectPath = args.projectPath || await configManager.getProjectPath() || null;
+
+      if (!projectPath) {
+        const solutionPath = args.solutionPath || await configManager.getSolutionPath() || null;
+        if (solutionPath) {
+          console.error(`[create_label] projectPath not found, scanning solution: ${solutionPath}`);
+          projectPath = await ProjectFileFinder.findProjectInSolution(solutionPath, model);
+        }
+      }
+
+      if (projectPath) {
+        const pfm = new ProjectFileManager();
+        // Collect all languages that have an XML descriptor
+        const allLangs = [...new Set([...written, ...existingLanguages])];
+        console.error(`[create_label] Adding label to project: ${projectPath} | labelFileId=${labelFileId} | langs=${allLangs.join(',')}`);
+        try {
+          const added = await pfm.addLabelToProject(projectPath, labelFileId, allLangs);
+          addedToProject.push(...added);
+          if (added.length === 0) {
+            projectAlreadyOk = true;
+            console.error(`[create_label] All label entries already in project — no write needed`);
+          } else {
+            console.error(`[create_label] Added ${added.length} descriptor(s) to project`);
+          }
+        } catch (projErr: any) {
+          const errMsg = projErr instanceof Error ? projErr.message : String(projErr);
+          const isLocked = errMsg.includes('EBUSY') || errMsg.includes('EPERM') || errMsg.includes('EACCES');
+          console.error(`[create_label] Failed to add label entries to project: ${errMsg}`);
+          projectWarning =
+            `\n⚠️ Label created but failed to add to VS project:\n${errMsg}\n` +
+            (isLocked
+              ? 'This usually means Visual Studio has the .rnrproj file locked.\n' +
+                'Close Visual Studio (or unload the project), re-run the tool, then reopen.\n'
+              : `Verify that projectPath exists: ${projectPath}\n`);
+        }
+      } else {
+        console.error('[create_label] projectPath is null — label descriptors will NOT be added to .rnrproj.');
+        projectWarning =
+          '\n⚠️ Could not add label descriptors to VS project — projectPath not resolved.\n' +
+          'Add projectPath to .mcp.json, pass it as a tool argument, or set solutionPath.\n' +
+          'Example: { "servers": { "context": { "projectPath": "K:\\\\VSProjects\\\\MyModel\\\\MyModel.rnrproj" } } }\n';
+      }
     }
 
     // 6. Build result summary
     if (written.length === 0 && skipped.length > 0) {
+      const skipLines = [
+        `⚠️ Label "${labelId}" already exists in all languages:\n` +
+        skipped.map(s => `  - ${s}`).join('\n') +
+        '\n\nNo label text changes were made.',
+      ];
+      if (addedToProject.length > 0) {
+        skipLines.push('\nAdded to VS project:');
+        skipLines.push(...addedToProject.map(n => `  ✔ ${n}`));
+      } else if (projectAlreadyOk) {
+        skipLines.push('\n✅ Label file entries already in VS project.');
+      }
+      if (projectWarning) skipLines.push(projectWarning);
       return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `⚠️ Label "${labelId}" already exists in all languages:\n` +
-              skipped.map(s => `  - ${s}`).join('\n') +
-              '\n\nNo changes were made.',
-          },
-        ],
+        content: [{ type: 'text', text: skipLines.join('\n') }],
       };
     }
 
@@ -424,6 +504,17 @@ export async function createLabelTool(request: CallToolRequest, context: XppServ
       lines.push('');
       lines.push('Skipped (already existed):');
       lines.push(...skipped.map(s => `  ⚠ ${s}`));
+    }
+    if (addedToProject.length > 0) {
+      lines.push('');
+      lines.push('Added to VS project:');
+      lines.push(...addedToProject.map(n => `  ✔ ${n}`));
+    } else if (projectAlreadyOk) {
+      lines.push('');
+      lines.push('✅ Label file entries already in VS project.');
+    }
+    if (projectWarning) {
+      lines.push(projectWarning);
     }
     lines.push('');
     lines.push('Use in X++:');
@@ -483,11 +574,23 @@ export const createLabelToolDefinition = {
       },
       description: {
         type: 'string',
-        description: 'Label description (comment line in .label.txt). Defaults to the model/project name when omitted. Per-translation comment and defaultComment take priority.',
+        description: 'Label description (comment line in .label.txt). Defaults to VS project name from .rnrproj when omitted, then falls back to labelFileId. Per-translation comment and defaultComment take priority.',
       },
       packagePath: {
         type: 'string',
         description: 'Root PackagesLocalDirectory path (default: K:\\AosService\\PackagesLocalDirectory)',
+      },
+      projectPath: {
+        type: 'string',
+        description: 'Path to the .rnrproj project file. Auto-detected from .mcp.json if omitted.',
+      },
+      solutionPath: {
+        type: 'string',
+        description: 'Path to the .sln solution directory. Fallback to find .rnrproj if projectPath is not set.',
+      },
+      addToProject: {
+        type: 'boolean',
+        description: 'Add label file XML descriptors to the VS project (default: true)',
       },
       createLabelFileIfMissing: {
         type: 'boolean',

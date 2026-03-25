@@ -135,6 +135,7 @@ describe('ProjectFileManager', () => {
         ['security-privilege', 'AxSecurityPrivilege', 'Security Privileges'],
         ['security-duty', 'AxSecurityDuty', 'Security Duties'],
         ['security-role', 'AxSecurityRole', 'Security Roles'],
+        ['label-file', 'AxLabelFile', 'Label Files'],
       ];
 
       for (const [objType, axPrefix, displayFolder] of types) {
@@ -197,6 +198,70 @@ describe('ProjectFileManager', () => {
 
       const result = fileStore.get(projectPath)!;
       expect(result).toContain('xmlns="http://schemas.microsoft.com/developer/msbuild/2003"');
+    });
+  });
+
+  describe('addLabelToProject', () => {
+    it('adds both descriptor and resource entries per language', async () => {
+      const projectPath = 'K:\\Test\\Test.rnrproj';
+      fileStore.set(projectPath, REALISTIC_RNRPROJ_WITH_BOM);
+
+      const manager = new ProjectFileManager();
+      const added = await manager.addLabelToProject(projectPath, 'TestLabels', ['en-US', 'de']);
+
+      expect(added).toEqual(['TestLabels_en-US', 'TestLabels_de']);
+      const xml = fileStore.get(projectPath)!;
+
+      // Descriptor entries
+      expect(xml).toContain('AxLabelFile\\TestLabels_en-US');
+      expect(xml).toContain('Label Files\\TestLabels_en-US');
+      expect(xml).toContain('AxLabelFile\\TestLabels_de');
+      expect(xml).toContain('Label Files\\TestLabels_de');
+
+      // Resource entries with DependentUpon
+      expect(xml).toContain('TestLabels.en-US.label.txt');
+      expect(xml).toContain('<DependentUpon>AxLabelFile\\TestLabels_en-US</DependentUpon>');
+      expect(xml).toContain('TestLabels.de.label.txt');
+      expect(xml).toContain('<DependentUpon>AxLabelFile\\TestLabels_de</DependentUpon>');
+
+      // Folder entry
+      expect(xml).toContain('Label Files\\');
+    });
+
+    it('returns empty array when all entries already exist', async () => {
+      const projectPath = 'K:\\Test\\Test.rnrproj';
+      fileStore.set(projectPath, REALISTIC_RNRPROJ_WITH_BOM);
+
+      const manager = new ProjectFileManager();
+      // First call adds
+      await manager.addLabelToProject(projectPath, 'TestLabels', ['en-US']);
+      // Second call should detect duplicates
+      const added2 = await manager.addLabelToProject(projectPath, 'TestLabels', ['en-US']);
+      expect(added2).toEqual([]);
+    });
+
+    it('writes resource entry even when descriptor already exists', async () => {
+      const projectPath = 'K:\\Test\\Test.rnrproj';
+      fileStore.set(projectPath, REALISTIC_RNRPROJ_WITH_BOM);
+
+      const manager = new ProjectFileManager();
+      // First call adds both descriptor + resource
+      await manager.addLabelToProject(projectPath, 'TestLabels', ['en-US']);
+      let xml = fileStore.get(projectPath)!;
+      expect(xml).toContain('TestLabels.en-US.label.txt');
+
+      // Simulate resource entry being manually removed (descriptor remains)
+      xml = xml.replace(/<Content Include="TestLabels\.en-US\.label\.txt">[\s\S]*?<\/Content>/, '');
+      fileStore.set(projectPath, xml);
+      expect(fileStore.get(projectPath)).not.toContain('TestLabels.en-US.label.txt');
+
+      // Second call: descriptor exists → added=[], but resource must still be written
+      const added2 = await manager.addLabelToProject(projectPath, 'TestLabels', ['en-US']);
+      expect(added2).toEqual([]); // no NEW descriptors
+      const xml2 = fileStore.get(projectPath)!;
+      // But resource entry must be restored
+      expect(xml2).toContain('TestLabels.en-US.label.txt');
+      expect(xml2).toContain('<DependentUpon>AxLabelFile\\TestLabels_en-US</DependentUpon>');
     });
   });
 });

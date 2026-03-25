@@ -809,7 +809,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 |------|---------|
 | `search_labels(query)` | **Always call first** before creating labels |
 | `get_label_info(labelId?, model?)` | Get translations, list label files |
-| `create_label(labelId, labelFileId, model, translations[])` | Create new label |
+| `create_label(labelId, labelFileId, model, translations[])` | Create new label + add to VS project |
 | `rename_label(oldLabelId, newLabelId, labelFileId, model)` | Rename label ID in .label.txt, X++ source, and XML metadata |
 
 > **Label ID naming — NO prefix!**
@@ -819,6 +819,14 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 > The label *file* (e.g. `@MyModel:CustomerName`) already identifies the owning model — the ID itself needs no prefix.
 
 > **Label file creation:** When calling `create_label` for the first time in a model (label file does not exist yet), **always** pass `createLabelFileIfMissing: true`. Without it the tool returns an error. Pass translations for all required languages (e.g. `en-US`, `cs`, `de`) — the tool creates the directory structure and XML descriptors for each language automatically. If you provide a translation for a language that does not yet have a folder (e.g. cs), set `createLabelFileIfMissing: true` so the folder and descriptor are created.
+
+> **Label files and VS project (.rnrproj):** `create_label` automatically adds AxLabelFile XML descriptors to the VS project (`.rnrproj`) via `addToProject=true` (default). This ensures label files are visible in Solution Explorer and included in builds.
+> - `addToProject` defaults to `true` — no action needed for the common case.
+> - If the tool response shows `⚠️ Could not add label descriptors to VS project`, it means `projectPath` could not be resolved. Fix by:
+>   1. Passing `projectPath` explicitly: `create_label(..., projectPath="K:\\VSProjects\\MyModel\\MyModel.rnrproj")`
+>   2. Or setting `projectPath` in `.mcp.json` config
+>   3. Or passing `solutionPath` so the tool can scan for `.rnrproj` automatically
+> - **NEVER** tell the user that `create_label` cannot add labels to the project — it CAN. If the warning appears, troubleshoot the `projectPath` resolution instead.
 
 ## File Paths & Model Name
 
