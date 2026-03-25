@@ -46,7 +46,7 @@ import { securityCoverageInfoTool } from './securityCoverageInfo.js';
 import { analyzeExtensionPointsTool } from './analyzeExtensionPoints.js';
 import { validateObjectNamingTool } from './validateObjectNaming.js';
 import { verifyD365ProjectTool } from './verifyD365Project.js';
-import { resolveObjectPrefix, isCustomModel } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, isCustomModel, getObjectSuffix } from '../utils/modelClassifier.js';
 import { getStdioSessionInfo } from '../utils/stdioSessionInfo.js';
 import { updateSymbolIndexTool } from './updateSymbolIndex.js';
 import { buildProjectTool } from './buildProject.js';
@@ -422,6 +422,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         // Prefix diagnostics
         const extensionPrefixEnv = process.env.EXTENSION_PREFIX?.trim() || null;
         const effectivePrefix = resolveObjectPrefix(modelName ?? '');
+        const objectSuffixEnv = process.env.OBJECT_SUFFIX?.trim() || null;
+        const effectiveSuffix = getObjectSuffix();
 
         const PLACEHOLDER_NAMES = new Set([
           'mymodel', 'mypackage', 'model', 'package', 'modelname', 'packagename',
@@ -456,6 +458,14 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
           extensionPrefixEnv
             ? `✅ EXTENSION_PREFIX is set — all new objects will use prefix "${effectivePrefix}".`
             : `⚠️  EXTENSION_PREFIX is not set in the server environment. The model name "${modelName}" will be used as prefix. Add EXTENSION_PREFIX=MY (or your ISV prefix) to the .env file and restart the server.`,
+          ``,
+          `## Suffix Configuration`,
+          ``,
+          `OBJECT_SUFFIX   : ${objectSuffixEnv ?? '(not set)'}`,
+          `Effective suffix: ${effectiveSuffix || '(none)'}`,
+          effectiveSuffix
+            ? `✅ OBJECT_SUFFIX is set — new objects will have suffix "${effectiveSuffix}" appended (e.g. MyTable${effectiveSuffix}).`
+            : `ℹ️  OBJECT_SUFFIX is not set. No suffix will be applied. This is normal — most projects use prefixes only.`,
           ``,
         ];
 

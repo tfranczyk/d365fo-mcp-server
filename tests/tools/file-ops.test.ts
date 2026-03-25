@@ -63,6 +63,8 @@ vi.mock('../../src/utils/modelClassifier', () => ({
   registerCustomModel: vi.fn(),
   resolveObjectPrefix: vi.fn(() => ''),
   applyObjectPrefix: vi.fn((name: string) => name),
+  getObjectSuffix: vi.fn(() => ''),
+  applyObjectSuffix: vi.fn((name: string) => name),
   isCustomModel: vi.fn(() => true),
   isStandardModel: vi.fn(() => false),
 }));

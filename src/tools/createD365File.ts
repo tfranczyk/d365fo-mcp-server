@@ -9,7 +9,7 @@ import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { Parser, Builder } from 'xml2js';
 import { getConfigManager, fallbackPackagePath } from '../utils/configManager.js';
-import { registerCustomModel, resolveObjectPrefix, applyObjectPrefix } from '../utils/modelClassifier.js';
+import { registerCustomModel, resolveObjectPrefix, applyObjectPrefix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { PackageResolver } from '../utils/packageResolver.js';
 import { ensureXppDocComment, ensureBlankLineBeforeClosingBrace } from '../utils/xppDocGen.js';
 import { decodeXmlEntitiesFromXppSource } from './modifyD365File.js';
@@ -3323,9 +3323,11 @@ export async function handleCreateD365File(
       }
     }
 
-    const finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
+    let finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
+    const objectSuffix = getObjectSuffix();
+    finalObjectName = applyObjectSuffix(finalObjectName, objectSuffix);
     if (finalObjectName !== args.objectName) {
-      console.error(`[create_d365fo_file] Applied prefix "${objectPrefix}": ${args.objectName} → ${finalObjectName}`);
+      console.error(`[create_d365fo_file] Applied naming: ${args.objectName} → ${finalObjectName}`);
     }
 
     // Determine object folder based on type

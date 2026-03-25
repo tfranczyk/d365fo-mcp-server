@@ -29,7 +29,7 @@ import { ProjectFileManager } from './createD365File.js';
 import path from 'path';
 import fs from 'fs';
 import { getConfigManager } from '../utils/configManager.js';
-import { resolveObjectPrefix, applyObjectPrefix } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, applyObjectPrefix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { extractModelFromProject, findProjectInSolution } from '../utils/projectUtils.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,8 +324,10 @@ export async function handleGenerateSmartReport(
 
   // Apply prefix
   const objectPrefix = resolvedModel ? resolveObjectPrefix(resolvedModel) : '';
-  const finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
-  if (finalName !== name) log(`Applied prefix: ${name} → ${finalName}`);
+  let finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
+  const objectSuffix = getObjectSuffix();
+  finalName = applyObjectSuffix(finalName, objectSuffix);
+  if (finalName !== name) log(`Applied naming: ${name} → ${finalName}`);
 
   // Derived object names
   const tmpTableName = `${finalName}Tmp`;

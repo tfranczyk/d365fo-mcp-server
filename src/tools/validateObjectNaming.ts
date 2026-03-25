@@ -7,6 +7,7 @@
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { XppServerContext } from '../types/context.js';
+import { getObjectSuffix } from '../utils/modelClassifier.js';
 
 const ValidateObjectNamingArgsSchema = z.object({
   proposedName: z.string().describe('The proposed object name to validate'),
@@ -159,6 +160,15 @@ export async function validateObjectNamingTool(request: CallToolRequest, context
         if (!name.startsWith(prefix) && !name.toUpperCase().startsWith(prefix)) {
           warnings.push(`Proposed name does not start with model prefix "${prefix}". All custom objects should be prefixed to avoid conflicts.`);
           suggestions.push(`Prefixed name: ${prefix}${name}`);
+        }
+      }
+
+      // Suffix check — if OBJECT_SUFFIX is configured, verify the name ends with it
+      const configuredSuffix = getObjectSuffix();
+      if (configuredSuffix) {
+        if (!name.toLowerCase().endsWith(configuredSuffix.toLowerCase())) {
+          warnings.push(`OBJECT_SUFFIX="${configuredSuffix}" is configured but the proposed name does not end with it. Expected: ${name}${configuredSuffix}`);
+          suggestions.push(`Suffixed name: ${name}${configuredSuffix}`);
         }
       }
 

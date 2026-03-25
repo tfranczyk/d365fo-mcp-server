@@ -5,7 +5,7 @@
 
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { resolveObjectPrefix, applyObjectPrefix, deriveExtensionInfix } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, applyObjectPrefix, deriveExtensionInfix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { getConfigManager } from '../utils/configManager.js';
 
 const CodeGenArgsSchema = z.object({
@@ -1890,7 +1890,9 @@ export async function codeGenTool(request: CallToolRequest) {
       }
     } else if (args.pattern === 'sysoperation') {
       // sysoperation is handled separately so we can pass the optional serviceMethod param
-      const finalName = applyObjectPrefix(args.name, prefix);
+      let finalName = applyObjectPrefix(args.name, prefix);
+      const suffix = getObjectSuffix();
+      finalName = applyObjectSuffix(finalName, suffix);
       const serviceMethod = args.serviceMethod?.trim() || 'process';
       code = sysOperationTemplate(finalName, serviceMethod);
       displayName = finalName;
@@ -1908,7 +1910,9 @@ export async function codeGenTool(request: CallToolRequest) {
           isError: true,
         };
       }
-      const finalName = applyObjectPrefix(args.name, prefix);
+      let finalName = applyObjectPrefix(args.name, prefix);
+      const suffix = getObjectSuffix();
+      finalName = applyObjectSuffix(finalName, suffix);
       code = newTemplate(finalName);
       displayName = finalName;
       namingNote = prefix

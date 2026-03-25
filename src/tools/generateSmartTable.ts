@@ -11,7 +11,7 @@ import type { BridgeClient } from '../bridge/bridgeClient.js';
 import path from 'path';
 import fs from 'fs';
 import { getConfigManager } from '../utils/configManager.js';
-import { resolveObjectPrefix, applyObjectPrefix } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, applyObjectPrefix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { ProjectFileManager } from './createD365File.js';
 import { extractModelFromProject, findProjectInSolution } from '../utils/projectUtils.js';
 
@@ -554,9 +554,11 @@ export async function handleGenerateSmartTable(
 
   // Apply extension prefix to table name (skip when model unknown)
   const objectPrefix = resolvedModel ? resolveObjectPrefix(resolvedModel) : '';
-  const finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
+  let finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
+  const objectSuffix = getObjectSuffix();
+  finalName = applyObjectSuffix(finalName, objectSuffix);
   if (finalName !== name) {
-    console.log(`[generateSmartTable] Applied prefix "${objectPrefix}": ${name} → ${finalName}`);
+    console.log(`[generateSmartTable] Applied naming: ${name} → ${finalName}`);
   }
 
   // Generate standard methods (find, exist) based on primary key fields
