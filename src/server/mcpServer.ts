@@ -1299,7 +1299,7 @@ Examples:
                   'Absolute path to the form XML file. Use this when get_form_info returned a ' +
                   '"could not be read from disk" warning \u2014 the warning includes the exact path to pass here. ' +
                   'Bypasses the DB path lookup entirely. ' +
-                  'Example: "K:\\\\AOSService\\\\PackagesLocalDirectory\\\\AslCore\\\\AslCore\\\\AxForm\\\\MyForm.xml"',
+                  'Example: "K:\\\\AOSService\\\\PackagesLocalDirectory\\\\ContosoCore\\\\ContosoCore\\\\AxForm\\\\MyForm.xml"',
               },
               searchControl: {
                 type: 'string',
@@ -1641,7 +1641,7 @@ Examples:
                   'Unique label identifier (alphanumeric). ' +
                   '⛔ NEVER add a model/object prefix — label IDs describe meaning, not ownership. ' +
                   'Good: "CustomerName", "InvoiceDate", "ErrorAmountNegative". ' +
-                  'Bad (prefixed): "AslCoreCustomerName", "ContosoExtInvoiceDate".',
+                  'Bad (prefixed): "MyModelCustomerName", "ContosoExtInvoiceDate".',
               },
               labelFileId: {
                 type: 'string',
@@ -1672,9 +1672,25 @@ Examples:
                 type: 'string',
                 description: 'Developer comment for languages without explicit comment',
               },
+              description: {
+                type: 'string',
+                description: 'Label description (comment line in .label.txt). Defaults to VS project name from .rnrproj when omitted, then falls back to labelFileId. Per-translation comment and defaultComment take priority.',
+              },
               packagePath: {
                 type: 'string',
                 description: 'Root packages path. Auto-detected from environment config if omitted.',
+              },
+              projectPath: {
+                type: 'string',
+                description: 'Path to the .rnrproj project file. Auto-detected from .mcp.json if omitted.',
+              },
+              solutionPath: {
+                type: 'string',
+                description: 'Path to the .sln solution directory. Fallback to find .rnrproj if projectPath is not set.',
+              },
+              addToProject: {
+                type: 'boolean',
+                description: 'Add label file XML descriptors to the VS project (default: true)',
               },
               createLabelFileIfMissing: {
                 type: 'boolean',

@@ -85,14 +85,30 @@ export async function classInfoTool(request: CallToolRequest, context: XppServer
     }
 
     // Try C# bridge first (IMetadataProvider — live D365FO metadata)
-    const bridgeResult = await tryBridgeClass(context.bridge, args.className, args.compact !== false, args.methodOffset ?? 0);
-    if (bridgeResult) return bridgeResult;
+    // Skip bridge for compact=true: DB signatures are instant (no IPC) and sufficient.
+    // Bridge fetches full method source bodies only for the adapter to extract line 1
+    // as a signature — pure waste when compact mode only needs signatures.
+    if (args.compact === false) {
+      const bridgeResult = await tryBridgeClass(context.bridge, args.className, false, args.methodOffset ?? 0);
+      if (bridgeResult) {
+        // Cache bridge result to avoid repeated IPC for the same class
+        await cache.setClassInfo(cacheKey, bridgeResult).catch(() => {});
+        return bridgeResult;
+      }
+    }
 
     // Query database and parse
     const classSymbol = symbolIndex.getSymbolByName(args.className, 'class');
 
     if (!classSymbol) {
-      const typeMismatch = buildObjectTypeMismatchMessage(symbolIndex.db, args.className);
+      // SQLite has no record — try bridge as fallback (essential in write-only mode
+      // where SQLite is an empty in-memory DB but bridge reads directly from disk)
+      const bridgeFallback = await tryBridgeClass(context.bridge, args.className, false, args.methodOffset ?? 0);
+      if (bridgeFallback) {
+        await cache.setClassInfo(cacheKey, bridgeFallback).catch(() => {});
+        return bridgeFallback;
+      }
+      const typeMismatch = buildObjectTypeMismatchMessage(symbolIndex.getReadDb(), args.className);
       return {
         content: [
           {

@@ -5,10 +5,21 @@ When you ask GitHub Copilot a question about D365FO code, it automatically calls
 just ask in plain English.
 
 > **C# Metadata Bridge (Windows D365FO VMs only):** On a Windows VM with D365FO installed,
-> 12 read-only tools automatically try the C# metadata bridge first — providing always-fresh,
-> runtime-resolved metadata via `IMetadataProvider`. If the bridge is unavailable (Azure, Linux,
-> CI) or the object is not found, the tools transparently fall back to the SQLite database.
-> Bridge-sourced results include a `_Source: C# bridge (IMetadataProvider)_` marker.
+> 20 tools automatically try the C# metadata bridge first — providing always-fresh,
+> runtime-resolved metadata via `IMetadataProvider` and compiler-resolved cross-references
+> via `DYNAMICSXREFDB`. If the bridge is unavailable (Azure, Linux, CI) or the object is
+> not found, the tools transparently fall back to the SQLite database.
+> Bridge-sourced results include a `_Source: C# bridge_` marker.
+>
+> **Cross-reference enrichment (P1-P5):** `find_references` returns categorized reference
+> types (call/extends/field-access) and caller details. `find_coc_extensions` shows which
+> methods each extension class wraps. `find_event_handlers` supports eventName/handlerType
+> filtering. `get_api_usage_patterns` returns compiler-resolved callers grouped by class.
+>
+> **Write operations** are fully bridged: 18 create types and **all 25 modify operations**
+> use `IMetadataProvider.Create()` / `Update()` as the sole write path.
+> The bridge is required for all modify operations (no xml2js fallback).
+> Complex create types (report, data-entity) remain in TypeScript XML generation.
 > See [BRIDGE.md](BRIDGE.md) for details.
 
 ---
@@ -62,7 +73,7 @@ just ask in plain English.
 | **analyze_code_patterns** | Learn real patterns from your codebase | "Show me patterns for ledger journal creation" |
 | **suggest_method_implementation** | Real examples of how similar methods are written | "How do others implement validateWrite()" |
 | **analyze_class_completeness** | Which standard methods is my class missing? | "Is MyHelper class complete?" |
-| **get_api_usage_patterns** | How is a specific API typically initialized and used? | "How do I use LedgerJournalEngine?" |
+| **get_api_usage_patterns** † | How is a specific API typically initialized and used? (bridge-first: compiler-resolved callers) | "How do I use LedgerJournalEngine?" |
 
 ### Smart Object Generation (4 tools)
 
@@ -87,13 +98,13 @@ The following tools empower Copilot to trigger X++ compilation, testing, and db 
 
 | Tool | What it does | Example prompt |
 |------|-------------|---------------|
-| **update_symbol_index** | Indexes a newly written XML file instantly | "Update the index for the new class I just created" |
+| **update_symbol_index** | Re-indexes a file after creation/modification, or **cleans up stale entries** when a file is deleted — removes symbols + labels from SQLite, invalidates Redis cache, and refreshes the C# bridge | "Update the index for the new class I just created" |
 | **build_d365fo_project** | Triggers an MSBuild process on the project to catch compiler errors | "Build my project and show me the errors" |
 | **trigger_db_sync** | Runs a database sync for the given table or the whole model | "Sync the database to reflect my table changes" |
 | **run_bp_check** | Runs the best practice linter on the code | "Run best practice checks on my latest changes" |
 | **run_systest_class** | Invokes D365FO SysTest framework against a specific test class | "Run the unit tests in MyTestClass" |
 | **review_workspace_changes** | Fetches uncommitted X++ git diff and formats it for AI code review | "Review my uncommitted changes against D365 best practices" |
-| **undo_last_modification** | Undoes the last uncommitted modification or file creation via git | "Undo the changes I just made to CustTable.xml" |
+| **undo_last_modification** | Reverts (tracked) or deletes (untracked) a file via git, then **cleans up the symbol index** — removes stale SQLite entries, invalidates Redis cache, refreshes bridge, and re-indexes the restored file for reverts | "Undo the changes I just made to CustTable.xml" |
 
 ### File Operations — LOCAL_TOOLS (4 tools)
 
@@ -116,11 +127,11 @@ The following tools empower Copilot to trigger X++ compilation, testing, and db 
 | **get_security_artifact_info** | Full privilege/duty/role details with hierarchy chain | "Show me everything in the CustTableFullControl privilege" |
 | **get_security_coverage_for_object** | Which roles have access to a form or table | "What roles can access the CustTable form?" |
 | **get_menu_item_info** | Menu item target, type, and security privilege chain | "What form does the CustTable menu item open?" |
-| **find_coc_extensions** | Which classes wrap a method with CoC | "Does CustTable.validateWrite have any CoC wrappers?" |
-| **find_event_handlers** | All [SubscribesTo] handlers for table or class events | "Who handles the onInserted event of SalesLine?" |
+| **find_coc_extensions** † | Which classes wrap a method with CoC — shows wrapped methods per extension | "Does CustTable.validateWrite have any CoC wrappers?" |
+| **find_event_handlers** † | All event handlers with type classification and event filtering | "Who handles the onInserted event of SalesLine?" |
 | **get_table_extension_info** | All extensions of a table: added fields, indexes, methods | "What fields did ISV packages add to CustTable?" |
 | **get_data_entity_info** † | Data entity category, OData name, data sources, keys | "Show me CustCustomerV3Entity details" |
-| **analyze_extension_points** | CoC-eligible methods, delegates, events — what can be extended | "What can I extend on SalesLine?" |
+| **analyze_extension_points** † | CoC-eligible methods, delegates, events — what can be extended (bridge enrichment for existing extensions) | "What can I extend on SalesLine?" |
 | **recommend_extension_strategy** | Recommends the best extensibility mechanism for a scenario — prevents wrong choices (CoC vs event vs Business Event vs data entity) | "Should I use CoC or Business Event to notify an external system?" |
 | **validate_object_naming** | Validate proposed extension/object names against D365FO conventions | "Is SalesTableExtension a valid extension class name?" |
 
@@ -455,6 +466,11 @@ Show me patterns for financial dimension handling
 
 Shows how a specific API class or method is actually used in your codebase: typical
 initialization code, common method call sequences, and related APIs.
+
+> **Bridge-first (P5):** When the C# bridge is connected, this tool queries
+> `DYNAMICSXREFDB` for compiler-resolved callers of the API, grouped by class with
+> method list and call count. Falls back to SQLite pattern analysis when the bridge
+> is unavailable.
 
 **Examples:**
 ```
@@ -993,6 +1009,80 @@ Verifies that D365FO objects exist on disk at the correct AOT path and are refer
 ### Summary
 - Checked: 3   On disk ✅: 2   Missing from disk ❌: 1
 - In project ✅: 3   Missing from project ❌: 0
+```
+
+---
+
+### update_symbol_index
+
+Re-indexes a D365FO XML file in the SQLite symbol database. Since `create_d365fo_file`
+and `modify_d365fo_file` now **auto-invalidate** the Redis cache and refresh the C# bridge
+provider, this tool is no longer required after those operations. It remains useful for
+edge cases — files modified outside MCP tools (manual edits, `git pull`, external scripts).
+
+**Handles three scenarios:**
+
+| Scenario | What happens |
+|----------|-------------|
+| **File exists** (created/modified) | Re-parses the XML file, updates all symbol entries in SQLite (symbols + labels), and **invalidates Redis cache** for all affected objects |
+| **File deleted** | Removes all stale symbol and label entries from SQLite, clears Redis cache entries (`xpp:class:*`, `xpp:table:*`, `xpp:method-sig:*`, `xpp:search:*`), and refreshes the C# bridge provider |
+| **File not in index** | Indexes the file for the first time |
+
+> **Why this matters:** Without cache invalidation, Redis would continue serving stale data
+> (e.g. a deleted class appearing as "found") until the 1-hour TTL expired. This tool now
+> clears all relevant cache entries immediately.
+
+**Parameters:**
+- `filePath` — absolute path to the D365FO XML file (required)
+- `objectType` — object type hint: `class`, `table`, `enum`, `edt`, etc. (optional)
+
+**Returns:**
+- `✅ Indexed N symbol(s)` — file was (re-)indexed, Redis cache invalidated
+- `🗑️ File deleted — cleaned up N symbol(s) + M label(s)` — stale entries removed
+
+**Examples:**
+```
+Update the index for the new class I just created
+Re-index SalesTable after adding a field
+The index still shows a label I deleted — force re-index
+```
+
+---
+
+### undo_last_modification
+
+Reverts or deletes an uncommitted D365FO file change via git, then performs **full index
+cleanup** to ensure the MCP symbol database reflects the actual state on disk.
+
+**For tracked files** (modified, existing in git):
+1. Runs `git checkout HEAD -- <file>` to restore the last committed version
+2. Removes stale symbol/label entries from SQLite
+3. Invalidates Redis cache for all affected objects
+4. Refreshes the C# bridge provider
+5. Re-indexes the restored file to reflect its reverted content
+
+**For untracked files** (newly created, not in git):
+1. Deletes the file from disk (`fs.unlinkSync`)
+2. Removes stale symbol/label entries from SQLite
+3. Invalidates Redis cache entries
+4. Refreshes the C# bridge
+
+> **Why this matters:** Previously, undoing a file creation left the symbol index believing
+> the objects still existed — Copilot would report classes and labels as valid even after
+> they were removed. Now the entire cleanup chain runs automatically.
+
+**Parameters:**
+- `filePath` — absolute path to the D365FO XML file to undo (required)
+
+**Returns:**
+- Success message with details about the revert/delete and index cleanup
+- Error message if the file is not in a git repository or has no changes
+
+**Examples:**
+```
+Undo the changes I just made to CustTable.xml
+Revert the new class I just created — it was wrong
+Delete the untracked label file and clean up the index
 ```
 
 ---

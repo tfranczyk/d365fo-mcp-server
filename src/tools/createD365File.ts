@@ -8,11 +8,13 @@ import * as path from 'path';
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { Parser, Builder } from 'xml2js';
-import { getConfigManager } from '../utils/configManager.js';
-import { registerCustomModel, resolveObjectPrefix, applyObjectPrefix } from '../utils/modelClassifier.js';
+import { getConfigManager, fallbackPackagePath } from '../utils/configManager.js';
+import { registerCustomModel, resolveObjectPrefix, applyObjectPrefix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { PackageResolver } from '../utils/packageResolver.js';
 import { ensureXppDocComment, ensureBlankLineBeforeClosingBrace } from '../utils/xppDocGen.js';
 import { decodeXmlEntitiesFromXppSource } from './modifyD365File.js';
+import { bridgeValidateAfterWrite, canBridgeCreate, bridgeCreateObject } from '../bridge/index.js';
+import { invalidateCache } from './updateSymbolIndex.js';
 
 /**
  * Per-project-file mutex to serialise concurrent addToProject calls.
@@ -67,7 +69,7 @@ const CreateD365FileArgsSchema = z.object({
   packagePath: z
     .string()
     .optional()
-    .describe('Base package path (default: K:\\AosService\\PackagesLocalDirectory)'),
+    .describe('Base package path (default: auto-detected from .mcp.json or well-known locations: C:\\, J:\\, K:\\AosService\\PackagesLocalDirectory)'),
   sourceCode: z
     .string()
     .optional()
@@ -479,6 +481,28 @@ export class XmlTemplateGenerator {
     return {
       declaration: classHeader + memberVarsXpp + '}',
       methods,
+    };
+  }
+
+  /**
+   * Parse X++ sourceCode into declaration + methods for the C# bridge.
+   *
+   * Used by the bridge-first creation path in create_d365fo_file — the C# side
+   * expects declaration (class header + member vars) and an array of method
+   * objects {name, source} which it sets on the AxClass via IMetadataProvider.
+   *
+   * Delegates to splitXppClassSource after decoding any XML entities.
+   */
+  static parseSourceForBridge(sourceCode: string): {
+    declaration: string;
+    methods: { name: string; source?: string }[];
+  } {
+    // Same entity-decoding as generateAxClassXml to handle AI-generated &lt; etc.
+    const cleaned = decodeXmlEntitiesFromXppSource(sourceCode);
+    const result = XmlTemplateGenerator.splitXppClassSource(cleaned);
+    return {
+      declaration: result.declaration,
+      methods: result.methods,
     };
   }
 
@@ -2793,6 +2817,7 @@ export class ProjectFileManager {
       'security-duty': 'Security Duties',
       'security-role': 'Security Roles',
       'business-event': 'Classes',
+      'label-file': 'Label Files',
       tile: 'Tiles',
       kpi: 'KPIs',
     };
@@ -2832,6 +2857,7 @@ export class ProjectFileManager {
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
       'business-event': 'AxClass',
+      'label-file': 'AxLabelFile',
       tile: 'AxTile',
       kpi: 'AxKPI',
     };
@@ -2872,8 +2898,10 @@ export class ProjectFileManager {
       }
     }
     // Strip UTF-8 BOM if present (VS writes BOM; Node fs.readFile keeps it)
+    let hadBom = false;
     if (projectXml.charCodeAt(0) === 0xFEFF) {
       projectXml = projectXml.slice(1);
+      hadBom = true;
     }
     const project = await this.parser.parseStringPromise(projectXml);
 
@@ -2882,9 +2910,14 @@ export class ProjectFileManager {
       throw new Error('Invalid .rnrproj file structure');
     }
 
-    // Initialize ItemGroup if not exists
+    // Initialize ItemGroup if not exists — insert BEFORE Import elements
+    // so MSBuild/VS sees items before targets (xml2js preserves JS key order)
     if (!project.Project.ItemGroup) {
-      project.Project.ItemGroup = [{ Folder: [] }, { Content: [] }];
+      const { Import, ...rest } = project.Project;
+      project.Project = { ...rest, ItemGroup: [{ Folder: [] }, { Content: [] }] };
+      if (Import) {
+        project.Project.Import = Import;
+      }
     }
 
     // Convert to array if single ItemGroup
@@ -2966,9 +2999,11 @@ export class ProjectFileManager {
 
     // Write back to project file (with retry for transient VS file locks)
     const updatedXml = this.builder.buildObject(project);
+    // Restore UTF-8 BOM if the original file had one (VS 2022 writes .rnrproj with BOM)
+    const output = hadBom ? '\uFEFF' + updatedXml : updatedXml;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        await fs.writeFile(projectPath, updatedXml, 'utf-8');
+        await fs.writeFile(projectPath, output, 'utf-8');
         break;
       } catch (err: any) {
         if ((err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') && attempt < 4) {
@@ -2984,6 +3019,139 @@ export class ProjectFileManager {
   }
 
   /**
+   * Add label file entries to Visual Studio project.
+   * Each language needs TWO entries:
+   *   1. AxLabelFile descriptor:   Include="AxLabelFile\{id}_{lang}"  Link="Label Files\{id}_{lang}"
+   *   2. LabelResources .label.txt: Include="{id}.{lang}.label.txt"  DependentUpon="AxLabelFile\{id}_{lang}"
+   * Both are added inside a single file-lock + parse/write cycle for efficiency.
+   * Returns the list of descriptor names that were newly added.
+   */
+  async addLabelToProject(
+    projectPath: string,
+    labelFileId: string,
+    languages: string[],
+  ): Promise<string[]> {
+    return withProjectFileLock(projectPath, () =>
+      this._addLabelToProjectLocked(projectPath, labelFileId, languages));
+  }
+
+  private async _addLabelToProjectLocked(
+    projectPath: string,
+    labelFileId: string,
+    languages: string[],
+  ): Promise<string[]> {
+    // Read project file (with retry for transient VS file locks)
+    let projectXml = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        projectXml = await fs.readFile(projectPath, 'utf-8');
+        break;
+      } catch (err: any) {
+        if ((err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') && attempt < 4) {
+          await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+    let hadBom = false;
+    if (projectXml.charCodeAt(0) === 0xFEFF) {
+      projectXml = projectXml.slice(1);
+      hadBom = true;
+    }
+    const project = await this.parser.parseStringPromise(projectXml);
+    if (!project.Project) throw new Error('Invalid .rnrproj file structure');
+
+    // Ensure ItemGroup structure
+    if (!project.Project.ItemGroup) {
+      const { Import, ...rest } = project.Project;
+      project.Project = { ...rest, ItemGroup: [{ Folder: [] }, { Content: [] }] };
+      if (Import) project.Project.Import = Import;
+    }
+    if (!Array.isArray(project.Project.ItemGroup)) {
+      project.Project.ItemGroup = [project.Project.ItemGroup];
+    }
+
+    let folderGroup = project.Project.ItemGroup.find((g: any) => g.Folder !== undefined);
+    if (!folderGroup) { folderGroup = { Folder: [] }; project.Project.ItemGroup.push(folderGroup); }
+
+    let contentGroup = project.Project.ItemGroup.find((g: any) => g.Content !== undefined);
+    if (!contentGroup) { contentGroup = { Content: [] }; project.Project.ItemGroup.push(contentGroup); }
+
+    if (!Array.isArray(folderGroup.Folder)) folderGroup.Folder = folderGroup.Folder ? [folderGroup.Folder] : [];
+    if (!Array.isArray(contentGroup.Content)) contentGroup.Content = contentGroup.Content ? [contentGroup.Content] : [];
+
+    // Ensure "Label Files\" folder entry
+    const folderExists = folderGroup.Folder.some(
+      (f: any) => f.$ && f.$.Include === 'Label Files\\'
+    );
+    if (!folderExists) {
+      folderGroup.Folder.push({ $: { Include: 'Label Files\\' } });
+    }
+
+    const added: string[] = [];
+    let newEntries = 0;
+    const existingIncludes = new Set(
+      contentGroup.Content.map((c: any) => c.$?.Include).filter(Boolean)
+    );
+
+    for (const lang of languages) {
+      const descriptorName = `${labelFileId}_${lang}`;
+      const descriptorInclude = `AxLabelFile\\${descriptorName}`;
+      const resourceFileName = `${labelFileId}.${lang}.label.txt`;
+
+      // 1. AxLabelFile descriptor entry
+      if (!existingIncludes.has(descriptorInclude)) {
+        contentGroup.Content.push({
+          $: { Include: descriptorInclude },
+          SubType: 'Content',
+          Name: descriptorName,
+          Link: `Label Files\\${descriptorName}`,
+        });
+        existingIncludes.add(descriptorInclude);
+        added.push(descriptorName);
+        newEntries++;
+      }
+
+      // 2. LabelResources .label.txt entry with DependentUpon
+      if (!existingIncludes.has(resourceFileName)) {
+        contentGroup.Content.push({
+          $: { Include: resourceFileName },
+          SubType: 'Content',
+          Name: resourceFileName,
+          DependentUpon: descriptorInclude,
+        });
+        existingIncludes.add(resourceFileName);
+        newEntries++;
+      }
+    }
+
+    if (newEntries === 0) {
+      console.error(`[ProjectFileManager] All label entries already in project — skipping write`);
+      return added;
+    }
+
+    // Write back
+    const updatedXml = this.builder.buildObject(project);
+    const output = hadBom ? '\uFEFF' + updatedXml : updatedXml;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await fs.writeFile(projectPath, output, 'utf-8');
+        break;
+      } catch (err: any) {
+        if ((err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') && attempt < 4) {
+          await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    console.error(`[ProjectFileManager] Added ${added.length} label descriptor(s) + resource entries to project`);
+    return added;
+  }
+
+  /**
    * Extract ModelName from Visual Studio project file
    * Returns the actual model name from PropertyGroup/Model or PropertyGroup/ModelName
    */
@@ -2994,7 +3162,11 @@ export class ProjectFileManager {
       );
 
       // Read project file
-      const projectXml = await fs.readFile(projectPath, 'utf-8');
+      let projectXml = await fs.readFile(projectPath, 'utf-8');
+      // Strip UTF-8 BOM if present
+      if (projectXml.charCodeAt(0) === 0xFEFF) {
+        projectXml = projectXml.slice(1);
+      }
       const project = await this.parser.parseStringPromise(projectXml);
 
       // Look for PropertyGroup with Model or ModelName
@@ -3042,7 +3214,11 @@ export class ProjectFileManager {
  * Create D365FO file handler function
  */
 export async function handleCreateD365File(
-  request: CallToolRequest
+  request: CallToolRequest,
+  context?: {
+    bridge?: import('../bridge/bridgeClient.js').BridgeClient;
+    cache?: import('../cache/redisCache.js').RedisCacheService;
+  },
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const args = CreateD365FileArgsSchema.parse(request.params.arguments);
 
@@ -3282,9 +3458,11 @@ export async function handleCreateD365File(
       }
     }
 
-    const finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
+    let finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
+    const objectSuffix = getObjectSuffix();
+    finalObjectName = applyObjectSuffix(finalObjectName, objectSuffix);
     if (finalObjectName !== args.objectName) {
-      console.error(`[create_d365fo_file] Applied prefix "${objectPrefix}": ${args.objectName} → ${finalObjectName}`);
+      console.error(`[create_d365fo_file] Applied naming: ${args.objectName} → ${finalObjectName}`);
     }
 
     // Determine object folder based on type
@@ -3316,6 +3494,7 @@ export async function handleCreateD365File(
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
       'business-event': 'AxClass',
+      'label-file': 'AxLabelFile',
       tile: 'AxTile',
       kpi: 'AxKPI',
     };
@@ -3339,9 +3518,9 @@ export async function handleCreateD365File(
       resolvedPackageName = args.packageName;
       if (envType === 'ude') {
         const customPath = await configManager.getCustomPackagesPath();
-        basePath = customPath || args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
+        basePath = customPath || args.packagePath || configPackagePath || fallbackPackagePath();
       } else {
-        basePath = args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
+        basePath = args.packagePath || configPackagePath || fallbackPackagePath();
       }
     } else if (envType === 'ude') {
       // UDE mode: auto-resolve package name via descriptor scan
@@ -3358,7 +3537,7 @@ export async function handleCreateD365File(
       } else {
         // Fallback: assume package == model (common case)
         resolvedPackageName = actualModelName;
-        basePath = customPath || args.packagePath || configPackagePath || 'K:\\AosService\\PackagesLocalDirectory';
+        basePath = customPath || args.packagePath || configPackagePath || fallbackPackagePath();
       }
     } else {
       // Traditional mode without explicit packageName: assume package == model
@@ -3366,7 +3545,7 @@ export async function handleCreateD365File(
       basePath =
         args.packagePath ||
         configPackagePath ||
-        'K:\\AosService\\PackagesLocalDirectory';
+        fallbackPackagePath();
     }
 
     console.error(
@@ -3482,6 +3661,97 @@ export async function handleCreateD365File(
       }
     }
 
+    // ── Phase 4: Bridge-first creation via IMetadataProvider.Create() ──
+    // For 18 supported types (class, class-extension, table, enum, edt, query, view, form,
+    // menu, 3 menu-items, 3 security, table/form/enum-extension): try C# bridge first.
+    // Falls back to TypeScript XML generation if bridge unavailable or unsupported type
+    // (report, data-entity, tile, kpi, business-event, etc.).
+    if (!args.xmlContent && context?.bridge && actualModelName && canBridgeCreate(args.objectType)) {
+      try {
+        // Prepare parameters for the bridge
+        const bridgeParams: Parameters<typeof bridgeCreateObject>[1] = {
+          objectType: args.objectType,
+          objectName: finalObjectName,
+          modelName: actualModelName,
+          properties: (args.properties as Record<string, string>) ?? undefined,
+        };
+
+        // For classes: parse sourceCode into declaration + methods
+        if ((args.objectType === 'class' || args.objectType === 'class-extension') && args.sourceCode) {
+          const parsed = XmlTemplateGenerator.parseSourceForBridge(args.sourceCode);
+          bridgeParams.declaration = parsed.declaration;
+          bridgeParams.methods = parsed.methods;
+        }
+
+        // For tables: pass fields, fieldGroups, indexes, relations from properties
+        if (args.objectType === 'table' && args.properties) {
+          const props = args.properties as Record<string, unknown>;
+          if (props.fields) bridgeParams.fields = props.fields as Record<string, unknown>[];
+          if (props.fieldGroups) bridgeParams.fieldGroups = props.fieldGroups as Record<string, unknown>[];
+          if (props.indexes) bridgeParams.indexes = props.indexes as Record<string, unknown>[];
+          if (props.relations) bridgeParams.relations = props.relations as Record<string, unknown>[];
+          if (props.methods) bridgeParams.methods = props.methods as { name: string; source?: string }[];
+        }
+
+        // For enums: pass values from properties
+        if (args.objectType === 'enum' && args.properties) {
+          const props = args.properties as Record<string, unknown>;
+          if (props.values) bridgeParams.values = props.values as Record<string, unknown>[];
+        }
+
+        // For views: pass fields from properties
+        if (args.objectType === 'view' && args.properties) {
+          const props = args.properties as Record<string, unknown>;
+          if (props.fields) bridgeParams.fields = props.fields as Record<string, unknown>[];
+        }
+
+        const bridgeResult = await bridgeCreateObject(context.bridge, bridgeParams);
+        if (bridgeResult?.success && bridgeResult.filePath) {
+          console.error(`[create_d365fo_file] ✅ Created via C# bridge: ${bridgeResult.filePath}`);
+
+          // Add to .rnrproj if requested
+          let projectMsg = '';
+          if (args.addToProject !== false && projectPathToUse) {
+            try {
+              const projectManager = new ProjectFileManager();
+              await projectManager.addToProject(
+                projectPathToUse,
+                args.objectType,
+                finalObjectName,
+                bridgeResult.filePath,
+              );
+              projectMsg = `\n✅ Added to project: ${path.basename(projectPathToUse)}`;
+            } catch (projErr) {
+              projectMsg = `\n⚠️ Could not add to project: ${projErr}`;
+            }
+          }
+
+          // Auto-invalidate Redis cache so subsequent reads see fresh data
+          // (bridge was already refreshed internally by bridgeCreateObject)
+          if (context?.cache) {
+            try {
+              await invalidateCache(context.cache, finalObjectName, args.objectType, [finalObjectName]);
+            } catch { /* Redis not available — non-fatal */ }
+          }
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `✅ Created ${args.objectType} '${finalObjectName}' via IMetadataProvider.Create()\n` +
+                  `📁 ${bridgeResult.filePath}${projectMsg}\n` +
+                  `🔧 API: ${bridgeResult.message}`,
+              },
+            ],
+          };
+        }
+        // If bridge returned null or success=false, fall through to XML generation
+        console.error(`[create_d365fo_file] Bridge returned ${JSON.stringify(bridgeResult)} — falling back to XML generation`);
+      } catch (bridgeErr) {
+        console.error(`[create_d365fo_file] Bridge create failed, falling back to XML: ${bridgeErr}`);
+      }
+    }
+
     // Generate (or use provided) XML content
     let xmlContent = args.xmlContent
       ? args.xmlContent
@@ -3590,6 +3860,30 @@ export async function handleCreateD365File(
     console.error(
       `[create_d365fo_file] ✅ Written: ${normalizedFullPath}  (${fileSizeKb} KB)`
     );
+
+    // Post-write validation via C# bridge (best-effort — non-fatal if bridge unavailable)
+    let bridgeValidation = '';
+    try {
+      const validationMsg = await bridgeValidateAfterWrite(
+        context?.bridge,
+        args.objectType,
+        finalObjectName,
+      );
+      if (validationMsg) {
+        bridgeValidation = `\n${validationMsg}\n`;
+        console.error(`[create_d365fo_file] Bridge validation: ${validationMsg}`);
+      }
+    } catch (e) {
+      console.error(`[create_d365fo_file] Bridge validation skipped: ${e}`);
+    }
+
+    // Auto-invalidate Redis cache so subsequent reads return fresh data
+    // (bridgeValidateAfterWrite already refreshed the C# bridge DiskProvider)
+    if (context?.cache) {
+      try {
+        await invalidateCache(context.cache, finalObjectName, args.objectType, [finalObjectName]);
+      } catch { /* Redis not available — non-fatal */ }
+    }
 
     // Add to Visual Studio project if requested
     let projectMessage = '';
@@ -3703,6 +3997,7 @@ export async function handleCreateD365File(
             `📄 Object: ${finalObjectName}${finalObjectName !== args.objectName ? ` (prefixed from "${args.objectName}")` : ''}\n` +
             `📦 Model: ${actualModelName}\n` +
             `🔧 Type: ${objectFolder}\n` +
+            bridgeValidation +
             projectMessage +
             `\n${nextSteps}\n` +
             `⛔ TASK COMPLETE — do NOT call \`generate_smart_table\`, \`generate_smart_form\`, or \`create_d365fo_file\` again for this object.`,

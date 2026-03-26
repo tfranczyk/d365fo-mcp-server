@@ -475,8 +475,8 @@ class ConfigManager {
     if (children.length > 1) {
       // Priority C: D365FO convention — the "primary" project in a solution folder
       // usually has the SAME NAME as the solution folder itself.
-      // e.g. VS 2022 sends root "AslCore - FeatureManagement/" which contains
-      // AslAuditReports - FeatureManagement/, AslCore - FeatureManagement/, …
+      // e.g. VS 2022 sends root "ContosoCore - FeatureManagement/" which contains
+      // ContosoReports - FeatureManagement/, ContosoCore - FeatureManagement/, …
       // → prefer the project whose own folder name matches the workspace base name.
       const wpBase = path.basename(workspacePath).toLowerCase();
       const nameMatch = children.find(p => {
@@ -682,6 +682,7 @@ class ConfigManager {
     if (process.platform === 'win32') {
       const wellKnownCandidates = [
         'C:\\AosService\\PackagesLocalDirectory',
+        'J:\\AosService\\PackagesLocalDirectory',
         'K:\\AosService\\PackagesLocalDirectory',
       ];
       for (const candidate of wellKnownCandidates) {
@@ -743,8 +744,8 @@ class ConfigManager {
    *   1) Explicit modelName in mcp.json context
    *   2) Last segment of workspacePath — ONLY when path contains PackagesLocalDirectory
    *      (AOT paths like K:\AosService\PackagesLocalDirectory\MyModel).
-   *      Skipped for solution/repo paths like K:\repos\ASL — those would wrongly
-   *      return "ASL" instead of the real model name from the .rnrproj file.
+   *      Skipped for solution/repo paths like K:\repos\Contoso — those would wrongly
+   *      return "Contoso" instead of the real model name from the .rnrproj file.
    *   3) Auto-detected model name from .rnrproj scan
    *   4) D365FO_MODEL_NAME env var
    */
@@ -1115,4 +1116,32 @@ export async function initializeConfig(
 ): Promise<McpConfig | null> {
   const manager = getConfigManager(configPath);
   return await manager.load();
+}
+
+/**
+ * Fallback package path when configManager.getPackagePath() returns null.
+ * This only happens when no config is loaded AND none of the well-known
+ * candidate paths (C:, J:, K:) exist on the filesystem.
+ * The value is a safe sentinel — callers will get a clear 'file not found'
+ * rather than silently defaulting to a specific drive letter.
+ */
+const FALLBACK_PACKAGE_PATH = 'C:\\AosService\\PackagesLocalDirectory';
+
+export function fallbackPackagePath(): string {
+  return FALLBACK_PACKAGE_PATH;
+}
+
+/**
+ * Extract the package name from a D365FO file path.
+ * Standard AOT layout: .../PackagesLocalDirectory/{Package}/{Model}/Ax{Type}/{Name}.xml
+ * Returns the package name (first segment after PackagesLocalDirectory), or null.
+ * The package name is what isStandardModel() checks against (e.g. ApplicationSuite).
+ */
+export function extractModelFromFilePath(filePath: string): string | null {
+  const normalised = filePath.replace(/\\/g, '/');
+  const match = normalised.match(/PackagesLocalDirectory\/([^/]+)\/[^/]+\/Ax[^/]+\//i);
+  if (match) {
+    return match[1]; // package name (first segment, e.g. ApplicationSuite)
+  }
+  return null;
 }

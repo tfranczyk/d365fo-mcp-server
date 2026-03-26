@@ -11,7 +11,7 @@ import { handleGetFormPatterns } from './getFormPatterns.js';
 import path from 'path';
 import fs from 'fs';
 import { getConfigManager } from '../utils/configManager.js';
-import { resolveObjectPrefix, applyObjectPrefix } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, applyObjectPrefix, getObjectSuffix, applyObjectSuffix } from '../utils/modelClassifier.js';
 import { ProjectFileManager } from './createD365File.js';
 import { extractModelFromProject, findProjectInSolution } from '../utils/projectUtils.js';
 
@@ -106,7 +106,7 @@ export async function handleGenerateSmartForm(
   if (copyFrom) {
     console.log(`[generateSmartForm] Copying structure from: ${copyFrom}`);
     try {
-      const db = symbolIndex.db;
+      const db = symbolIndex.getReadDb();
 
       // Copy datasources directly from form_datasources DB
       const dbDataSources = db.prepare(`
@@ -180,7 +180,7 @@ export async function handleGenerateSmartForm(
   let gridFields: string[] = [];
   if (dataSource && dataSources.length > 0) {
     try {
-      const db = symbolIndex.db;
+      const db = symbolIndex.getReadDb();
 
       // Query fields directly from symbols DB
       const dbFields = db.prepare(`
@@ -288,9 +288,11 @@ export async function handleGenerateSmartForm(
 
   // Apply extension prefix to form name (skip when model unknown)
   const objectPrefix = resolvedModel ? resolveObjectPrefix(resolvedModel) : '';
-  const finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
+  let finalName = objectPrefix ? applyObjectPrefix(name, objectPrefix) : name;
+  const objectSuffix = getObjectSuffix();
+  finalName = applyObjectSuffix(finalName, objectSuffix);
   if (finalName !== name) {
-    console.log(`[generateSmartForm] Applied prefix "${objectPrefix}": ${name} → ${finalName}`);
+    console.log(`[generateSmartForm] Applied naming: ${name} → ${finalName}`);
   }
 
   // Generate XML using pattern-specific template

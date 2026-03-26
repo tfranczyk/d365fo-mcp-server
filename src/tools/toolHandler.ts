@@ -46,7 +46,7 @@ import { securityCoverageInfoTool } from './securityCoverageInfo.js';
 import { analyzeExtensionPointsTool } from './analyzeExtensionPoints.js';
 import { validateObjectNamingTool } from './validateObjectNaming.js';
 import { verifyD365ProjectTool } from './verifyD365Project.js';
-import { resolveObjectPrefix, isCustomModel } from '../utils/modelClassifier.js';
+import { resolveObjectPrefix, isCustomModel, getObjectSuffix } from '../utils/modelClassifier.js';
 import { getStdioSessionInfo } from '../utils/stdioSessionInfo.js';
 import { updateSymbolIndexTool } from './updateSymbolIndex.js';
 import { buildProjectTool } from './buildProject.js';
@@ -272,7 +272,7 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
       case 'generate_d365fo_xml':
         return handleGenerateD365Xml(request);
       case 'create_d365fo_file':
-        return handleCreateD365File(request);
+        return handleCreateD365File(request, context);
       case 'find_references':
         return findReferencesTool(request, context);
       case 'modify_d365fo_file':
@@ -318,7 +318,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
       case 'generate_smart_table': {
         const r = await handleGenerateSmartTable(
           request.params.arguments as any,
-          context.symbolIndex
+          context.symbolIndex,
+          context.bridge,
         );
         return { content: r?.content ?? [{ type: 'text', text: 'No results returned' }] };
       }
@@ -421,6 +422,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         // Prefix diagnostics
         const extensionPrefixEnv = process.env.EXTENSION_PREFIX?.trim() || null;
         const effectivePrefix = resolveObjectPrefix(modelName ?? '');
+        const objectSuffixEnv = process.env.EXTENSION_SUFFIX?.trim() || null;
+        const effectiveSuffix = getObjectSuffix();
 
         const PLACEHOLDER_NAMES = new Set([
           'mymodel', 'mypackage', 'model', 'package', 'modelname', 'packagename',
@@ -455,6 +458,14 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
           extensionPrefixEnv
             ? `✅ EXTENSION_PREFIX is set — all new objects will use prefix "${effectivePrefix}".`
             : `⚠️  EXTENSION_PREFIX is not set in the server environment. The model name "${modelName}" will be used as prefix. Add EXTENSION_PREFIX=MY (or your ISV prefix) to the .env file and restart the server.`,
+          ``,
+          `## Suffix Configuration`,
+          ``,
+          `EXTENSION_SUFFIX: ${objectSuffixEnv ?? '(not set)'}`,
+          `Effective suffix: ${effectiveSuffix || '(none)'}`,
+          effectiveSuffix
+            ? `✅ EXTENSION_SUFFIX is set — new objects will have suffix "${effectiveSuffix}" appended (e.g. MyTable${effectiveSuffix}).`
+            : `ℹ️  EXTENSION_SUFFIX is not set. No suffix will be applied. This is normal — most projects use prefixes only.`,
           ``,
         ];
 
@@ -501,7 +512,7 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
             `>`,
             `> How to fix:`,
             `> 1. In Visual Studio, open the .rnrproj file and change <Model>FleetManagement</Model>`,
-            `>    to the correct model name (e.g. <Model>AslCore</Model>).`,
+            `>    to the correct model name (e.g. <Model>ContosoCore</Model>).`,
             `> 2. OR explicitly switch to a known project:`,
             `>    ${hint}`,
             `> 3. OR add the correct modelName to .mcp.json.`,

@@ -42,6 +42,7 @@ Your training data may be outdated. D365FO has 584,799+ objects in a pre-indexed
 - ✅ Fast queries (<10ms cached, <100ms uncached)
 - ✅ Accurate method signatures, field names, and patterns
 - ✅ Understanding of X++ semantics (inheritance, EDT, relations)
+- ✅ Compiler-resolved cross-references via DYNAMICSXREFDB (on Windows D365FO VMs) — enriched reference types, method-level CoC detail, event handler classification
 
 ## Tool Selection Guide
 
@@ -70,7 +71,7 @@ Use this guide to select the correct tool:
 | "Methods starting with calc" | \`code_completion(className, prefix)\` | Exact prefix match |
 | "Methods related to totals" | \`search("total", type="method")\` | Semantic/concept search |
 | "Method signature for CoC" | \`get_method_signature(className, methodName)\` | Before creating extensions |
-| "How to use API X" | \`get_api_usage_patterns(apiName)\` | Real usage examples |
+| "How to use API X" | \`get_api_usage_patterns(apiName)\` | Real usage examples — bridge-first: compiler-resolved callers from DYNAMICSXREFDB |
 
 ### Code Generation
 | User Request | Correct Tool | Required Before |
@@ -79,7 +80,7 @@ Use this guide to select the correct tool:
 | "Generate code for X" | \`generate_code(pattern, name)\` | analyze_code_patterns |
 | "Learn patterns for X" | \`analyze_code_patterns(scenario)\` | Always first |
 | "How to implement method" | \`suggest_method_implementation(className, methodName)\` | After get_method_signature |
-| "Where is X used" | \`find_references(targetName, targetType?)\` | For refactoring |
+| "Where is X used" | \`find_references(targetName, targetType?)\` | For refactoring — enriched: returns referenceType, callerClass/Method from DYNAMICSXREFDB |
 | "Which extension mechanism?" | \`recommend_extension_strategy(goal, objectName?)\` | Use BEFORE any extension work |
 | "Why does this error occur" | \`get_d365fo_error_help(errorText, errorCode?)\` | None |
 | "Explain this X++ error" | \`get_d365fo_error_help(errorText)\` | None |
@@ -113,6 +114,7 @@ Use this guide to select the correct tool:
 - The model name returned in search/get_table_info/get_class_info results is the SOURCE model of that object \u2014 it is NOT the model where you should create new objects.
 - The target model for ALL file creation (create_d365fo_file, create_label, modify_d365fo_file) is ALWAYS the one from .mcp.json (modelName/projectPath), regardless of what the task is about or what model names appear in search results.
 - Example of WRONG reasoning: task involves a report → search returns objects from "ContosoReports" → ❌ DO NOT use "ContosoReports" as the model. Use the configured model from .mcp.json.
+- **NEVER switch projects autonomously.** The MCP server auto-detects the correct project from the VS 2022 workspace. Do NOT call get_workspace_info(projectName=...) because you think the task belongs to a different model \u2014 the user decides which solution to open; you work within it. If you believe a different model is needed, ASK the user first.
 
 ### 2. Method Signatures
 **Before creating Chain of Command extensions:**
@@ -313,8 +315,8 @@ When the user needs to create security objects (privilege/duty/role/menu item):
 
 ALWAYS follow this order before writing a CoC extension:
 1. Call \`get_method_signature\` to get exact parameter types and return type
-2. Call \`find_coc_extensions\` to check if the method already has CoC wrappers in other models
-3. Call \`analyze_extension_points\` to verify the method is CoC-eligible (not final / Hookable(false))
+2. Call \`find_coc_extensions\` to check if the method already has CoC wrappers in other models (bridge-first: returns wrappedMethods per extension from DYNAMICSXREFDB)
+3. Call \`analyze_extension_points\` to verify the method is CoC-eligible (not final / Hookable(false)) — bridge enrichment shows existing extensions with method-level detail
 4. Use \`generate_code\` with pattern='table-extension' for the skeleton
 5. ALWAYS call \`next methodName(...)\` with ALL original parameters preserved
 6. Place next call: at START for pre-processing, at END for post-processing, BOTH for wrapping
@@ -335,8 +337,8 @@ When the user pastes a compiler or runtime error from D365FO / X++:
 ## Subscribing to Events (Event Handler Workflow)
 
 Before adding event handlers:
-1. Call \`analyze_extension_points\` with the target class/table to see available events
-2. Call \`find_event_handlers\` to check if the event is already handled (avoid duplicates)
+1. Call \`analyze_extension_points\` with the target class/table to see available events (bridge enrichment for existing extensions)
+2. Call \`find_event_handlers\` to check if the event is already handled (avoid duplicates) — bridge-first: supports eventName/handlerType filtering, per-method entries with type classification
 3. Use \`generate_code\` with pattern='event-handler' and baseName=className/tableName
 
 Rules:
@@ -438,6 +440,9 @@ All generated X++ code MUST pass the D365FO Best Practice checker without warnin
 ### BPErrorUnknownLabel — Labels must exist before reference
 - Always call \`create_label()\` before referencing \`@ModelName:LabelId\` in code
 - Verify with \`search_labels()\` that the label was created successfully
+- \`create_label\` automatically adds AxLabelFile XML descriptors to the VS project (.rnrproj) via \`addToProject=true\` (default)
+- If the tool response shows "Could not add label descriptors to VS project", pass \`projectPath\` explicitly or set it in \`.mcp.json\`
+- NEVER tell the user that \`create_label\` cannot add labels to the project — it CAN
 
 ### BPXmlDocNoDocumentationComments — All public/protected members need meaningful doc comments
 - Every public/protected class declaration and method MUST have \`/// <summary>\` documentation

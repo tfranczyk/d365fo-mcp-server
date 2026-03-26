@@ -150,6 +150,15 @@ export interface BridgeEdtInfo {
   enumType?: string;
   referenceTable?: string;
   model?: string;
+  // Gap-fill properties
+  formHelp?: string;
+  configurationKey?: string;
+  alignment?: string;
+  displayLength?: number;
+  relationType?: string;
+  noOfDecimals?: number;
+  decimalSeparator?: string;
+  signDisplay?: string;
 }
 
 // ===========================
@@ -159,14 +168,20 @@ export interface BridgeEdtInfo {
 export interface BridgeFormInfo {
   name: string;
   model?: string;
+  formPattern?: string;
   dataSources: BridgeFormDataSource[];
   controls: BridgeFormControl[];
+  methods?: BridgeMethodInfo[];
 }
 
 export interface BridgeFormDataSource {
   name: string;
   table: string;
   joinSource?: string;
+  linkType?: string;
+  allowEdit?: string;
+  allowCreate?: string;
+  allowDelete?: string;
 }
 
 export interface BridgeFormControl {
@@ -175,6 +190,13 @@ export interface BridgeFormControl {
   dataSource?: string;
   dataField?: string;
   children?: BridgeFormControl[];
+  caption?: string;
+  label?: string;
+  helpText?: string;
+  visible?: string;
+  enabled?: string;
+  dataMethod?: string;
+  autoDeclaration?: string;
 }
 
 // ===========================
@@ -184,6 +206,7 @@ export interface BridgeFormControl {
 export interface BridgeQueryInfo {
   name: string;
   model?: string;
+  description?: string;
   dataSources: BridgeQueryDataSource[];
 }
 
@@ -191,7 +214,16 @@ export interface BridgeQueryDataSource {
   name: string;
   table: string;
   joinMode?: string;
+  fetchMode?: string;
   childDataSources?: BridgeQueryDataSource[];
+  ranges?: BridgeQueryRange[];
+  fields?: string[];
+}
+
+export interface BridgeQueryRange {
+  field: string;
+  value?: string;
+  status?: string;
 }
 
 // ===========================
@@ -203,13 +235,23 @@ export interface BridgeViewInfo {
   label?: string;
   model?: string;
   query?: string;
+  isPublic?: boolean;
+  isReadOnly?: boolean;
+  primaryKey?: string;
   fields: BridgeViewField[];
+  relations?: BridgeRelationInfo[];
+  methods?: BridgeMethodInfo[];
+  dataSources?: BridgeDataEntityDataSource[];
 }
 
 export interface BridgeViewField {
   name: string;
   fieldType: string;
-  mandatory: boolean;
+  dataSource?: string;
+  dataField?: string;
+  dataMethod?: string;
+  label?: string;
+  isComputed?: boolean;
 }
 
 // ===========================
@@ -225,8 +267,14 @@ export interface BridgeDataEntityInfo {
   model?: string;
   dataSources: BridgeDataEntityDataSource[];
   fields: BridgeFieldInfo[];
+  // Gap-fill properties
+  isReadOnly?: boolean;
+  entityCategory?: string;
+  dataManagementEnabled?: boolean;
+  stagingTable?: string;
   keys?: BridgeDataEntityKey[];
   fieldMappings?: BridgeDataEntityFieldMapping[];
+  computedColumns?: string[];
 }
 
 export interface BridgeDataEntityDataSource {
@@ -252,8 +300,28 @@ export interface BridgeDataEntityFieldMapping {
 export interface BridgeReportInfo {
   name: string;
   model?: string;
-  dataSets: string[];
-  designs?: string[];
+  dataSets: BridgeReportDataSet[];
+  designs?: BridgeReportDesign[];
+}
+
+export interface BridgeReportDataSet {
+  name: string;
+  dataSourceType?: string;
+  query?: string;
+  fields?: BridgeReportDataSetField[];
+}
+
+export interface BridgeReportDataSetField {
+  name: string;
+  dataField?: string;
+  dataType?: string;
+}
+
+export interface BridgeReportDesign {
+  name: string;
+  caption?: string;
+  style?: string;
+  hasRdl?: boolean;
 }
 
 // ===========================
@@ -272,6 +340,12 @@ export interface BridgeReferenceInfo {
   kind?: string;
   line: number;
   column: number;
+  /** Categorized reference type: call, extends, field-access, type-reference, reference */
+  referenceType?: string;
+  /** Source class name parsed from SourcePath */
+  callerClass?: string;
+  /** Source method name parsed from SourcePath */
+  callerMethod?: string;
 }
 
 // ===========================
@@ -307,4 +381,346 @@ export interface BridgeListResult {
   type: string;
   count: number;
   names: string[];
+}
+
+// ===========================
+// Write-support types (Phase 3)
+// ===========================
+
+export interface BridgeValidateResult {
+  valid: boolean;
+  reason?: string;
+  objectType?: string;
+  objectName?: string;
+  fieldCount?: number;
+  methodCount?: number;
+  indexCount?: number;
+  valueCount?: number;
+}
+
+export interface BridgeResolveResult {
+  exists: boolean;
+  objectType: string;
+  objectName: string;
+  model?: string;
+}
+
+export interface BridgeRefreshResult {
+  refreshed: boolean;
+  elapsedMs: number;
+}
+
+// ===========================
+// Write operation types (Phase 4)
+// ===========================
+
+/** Result from createObject / addMethod / addField / setProperty / replaceCode */
+export interface BridgeWriteResult {
+  success: boolean;
+  objectType?: string;
+  objectName?: string;
+  modelName?: string;
+  filePath?: string;
+  operation?: string;
+  methodName?: string;
+  fieldName?: string;
+  fieldType?: string;
+  propertyPath?: string;
+  propertyValue?: string;
+  api?: string;
+}
+
+/** Result from createSmartTable — includes BP defaults summary */
+export interface BridgeSmartTableResult extends BridgeWriteResult {
+  bpDefaults?: {
+    cacheLookup?: string;
+    saveDataPerCompany?: string;
+    titleField1?: string;
+    titleField2?: string;
+    primaryIndex?: string;
+    clusteredIndex?: string;
+    fieldGroupCount?: number;
+    deleteActionCount?: number;
+  };
+}
+
+/** Method parameter for createObject */
+export interface BridgeMethodParam {
+  name: string;
+  source?: string;
+}
+
+/** Field parameter for createObject (table) */
+export interface BridgeFieldParam {
+  name: string;
+  fieldType?: string;
+  edt?: string;
+  enumType?: string;
+  mandatory?: boolean;
+  label?: string;
+  helpText?: string;
+  stringSize?: number;
+}
+
+/** Field group parameter for createObject (table) */
+export interface BridgeFieldGroupParam {
+  name: string;
+  label?: string;
+  fields?: string[];
+}
+
+/** Index parameter for createObject (table) */
+export interface BridgeIndexParam {
+  name: string;
+  allowDuplicates?: boolean;
+  alternateKey?: boolean;
+  fields?: string[];
+}
+
+/** Relation parameter for createObject (table) */
+export interface BridgeRelationParam {
+  name: string;
+  relatedTable?: string;
+  constraints?: { field?: string; relatedField?: string }[];
+}
+
+/** Enum value parameter for createObject (enum) */
+export interface BridgeEnumValueParam {
+  name: string;
+  value: number;
+  label?: string;
+}
+
+// ===========================
+// Delete result
+// ===========================
+
+export interface BridgeDeleteResult {
+  success: boolean;
+  objectType: string;
+  objectName: string;
+  model?: string;
+  filePath?: string;
+  error?: string;
+}
+
+// ===========================
+// Batch modify types
+// ===========================
+
+export interface BridgeBatchOperationRequest {
+  operation: string;
+  params?: Record<string, unknown>;
+}
+
+export interface BridgeBatchOperationItemResult {
+  operation: string;
+  success: boolean;
+  error?: string;
+  elapsedMs: number;
+}
+
+export interface BridgeBatchOperationResult {
+  objectType: string;
+  objectName: string;
+  totalOperations: number;
+  successCount: number;
+  failureCount: number;
+  operations: BridgeBatchOperationItemResult[];
+}
+
+// ===========================
+// Capabilities
+// ===========================
+
+export interface BridgeCapabilities {
+  objectTypes: Record<string, string[]>;
+  version: string;
+}
+
+// ===========================
+// Form pattern discovery
+// ===========================
+
+export interface BridgeFormPattern {
+  name: string;
+  version?: string;
+  description?: string;
+}
+
+export interface BridgeFormPatternDiscoveryResult {
+  patterns: BridgeFormPattern[];
+  count: number;
+  source: string;
+}
+
+// ===========================
+// Security artifact types (Phase 6)
+// ===========================
+
+export interface BridgeSecurityEntryPoint {
+  objectType?: string;
+  objectName?: string;
+  accessLevel?: string;
+}
+
+export interface BridgeSecurityPrivilegeResult {
+  artifactType: 'privilege';
+  name: string;
+  label?: string;
+  description?: string;
+  model?: string;
+  entryPoints: BridgeSecurityEntryPoint[];
+  parentDuties: Array<{ name: string }>;
+  _source: string;
+}
+
+export interface BridgeSecurityDutyResult {
+  artifactType: 'duty';
+  name: string;
+  label?: string;
+  description?: string;
+  model?: string;
+  childPrivileges: Array<{ name: string }>;
+  subDuties: Array<{ name: string }>;
+  parentRoles: Array<{ name: string }>;
+  _source: string;
+}
+
+export interface BridgeSecurityRoleResult {
+  artifactType: 'role';
+  name: string;
+  label?: string;
+  description?: string;
+  model?: string;
+  childDuties: Array<{ name: string }>;
+  childPrivileges: Array<{ name: string }>;
+  subRoles: Array<{ name: string }>;
+  _source: string;
+}
+
+// ===========================
+// Menu item types (Phase 6)
+// ===========================
+
+export interface BridgeMenuItemResult {
+  name: string;
+  menuItemType: string;
+  label?: string;
+  helpText?: string;
+  objectType?: string;
+  object?: string;
+  openMode?: string;
+  linkedPermissionType?: string;
+  linkedPermissionObject?: string;
+  model?: string;
+  _source: string;
+}
+
+// ===========================
+// Table extension list types (Phase 6)
+// ===========================
+
+export interface BridgeTableExtensionEntry {
+  extensionName: string;
+  model?: string;
+  addedFields: string[];
+  addedIndexes: string[];
+  addedFieldGroups: string[];
+  addedRelations: string[];
+}
+
+export interface BridgeTableExtensionListResult {
+  baseTable: string;
+  extensionCount: number;
+  extensions: BridgeTableExtensionEntry[];
+  _source: string;
+}
+
+// ===========================
+// Code completion types (Phase 6)
+// ===========================
+
+export interface BridgeCompletionMember {
+  name: string;
+  signature?: string;
+  kind: string;
+}
+
+export interface BridgeCompletionResult {
+  symbolName: string;
+  symbolType: string;
+  model?: string;
+  members: BridgeCompletionMember[];
+  _source: string;
+}
+
+// ===========================
+// Extension class xref types (Phase 6)
+// ===========================
+
+export interface BridgeExtensionClassEntry {
+  className: string;
+  path?: string;
+  module?: string;
+  /** Methods that the extension class wraps via CoC */
+  wrappedMethods?: string[];
+}
+
+export interface BridgeExtensionClassResult {
+  baseClassName: string;
+  count: number;
+  extensions: BridgeExtensionClassEntry[];
+  _source: string;
+}
+
+// ===========================
+// Event subscriber xref types (Phase 6 — enriched)
+// ===========================
+
+export interface BridgeEventSubscriberEntry {
+  className: string;
+  module?: string;
+  methods?: string[];
+  /** Individual method name */
+  methodName?: string;
+  /** Event name (e.g. "onInserted") */
+  eventName?: string;
+  /** Handler type: "dataEvent", "delegate", "pre", "post", "static" */
+  handlerType?: string;
+}
+
+export interface BridgeEventSubscriberResult {
+  targetName: string;
+  count: number;
+  handlers: BridgeEventSubscriberEntry[];
+  _source: string;
+}
+
+// ===========================
+// API usage callers xref types
+// ===========================
+
+export interface BridgeApiUsageCallerEntry {
+  callerClass: string;
+  callerMethod?: string;
+  module?: string;
+  kind?: string;
+  line: number;
+}
+
+export interface BridgeApiUsageCallersByClass {
+  callerClass: string;
+  module?: string;
+  methods: string[];
+  callCount: number;
+}
+
+export interface BridgeApiUsageCallersResult {
+  apiName: string;
+  totalCallers: number;
+  uniqueClasses: number;
+  callersByClass: BridgeApiUsageCallersByClass[];
+  callers: BridgeApiUsageCallerEntry[];
+  _source: string;
 }

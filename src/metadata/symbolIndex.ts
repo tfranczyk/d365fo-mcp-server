@@ -127,8 +127,11 @@ export class XppSymbolIndex {
    * Returns the next read-only connection from the pool (round-robin).
    * Falls back to the main writer connection when the pool is empty
    * (e.g. :memory: databases used in write-only mode).
+   *
+   * Tool handlers should use this instead of accessing `db` directly
+   * to benefit from read-pool parallelism and per-connection stmt caching.
    */
-  private getReadDb(): Database.Database {
+  getReadDb(): Database.Database {
     if (this.readPool.length === 0) return this.db;
     return this.readPool[this.readPoolRR++ % this.readPool.length];
   }
@@ -155,8 +158,11 @@ export class XppSymbolIndex {
    * Get (or lazily prepare) a statement on a specific connection.
    * Uses the per-connection WeakMap cache so statements are never shared
    * across connections.
+   *
+   * Tool handlers should use `getReadStmt(index.getReadDb(), key, () => sql)`
+   * for repeated queries — avoids re-preparing the same SQL on every call.
    */
-  private getReadStmt(
+  getReadStmt(
     db: Database.Database,
     key: string,
     buildSql: () => string
@@ -349,6 +355,10 @@ export class XppSymbolIndex {
       CREATE INDEX IF NOT EXISTS idx_type_name ON symbols(type, name);
       CREATE INDEX IF NOT EXISTS idx_parent_type ON symbols(parent_name, type) WHERE parent_name IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_name_type ON symbols(name, type);
+      -- Covering index for field/method lookups by parent (avoids table access)
+      CREATE INDEX IF NOT EXISTS idx_parent_type_name ON symbols(parent_name, type, name) WHERE parent_name IS NOT NULL;
+      -- Index for extends_class lookups (CoC extension discovery)
+      CREATE INDEX IF NOT EXISTS idx_extends_class ON symbols(extends_class) WHERE extends_class IS NOT NULL;
     `);
 
     // Create code_patterns table for pattern analysis
@@ -654,6 +664,44 @@ export class XppSymbolIndex {
       symbol.relatedMethods || null,
       symbol.apiPatterns || null
     );
+  }
+
+  /**
+   * Remove all symbols for a given file path from both the main table and FTS index.
+   * Returns the names of top-level objects that were removed (for cache invalidation).
+   */
+  removeSymbolsByFile(filePath: string): { deletedCount: number; objectNames: string[] } {
+    // Collect object names BEFORE deletion (for cache invalidation)
+    const rows = this.db.prepare(
+      `SELECT DISTINCT name FROM symbols WHERE file_path = ? AND parent_name IS NULL`
+    ).all(filePath) as Array<{ name: string }>;
+    const objectNames = rows.map(r => r.name);
+
+    // The FTS trigger (symbols_fts AFTER DELETE) handles FTS cleanup automatically
+    const result = this.db.prepare(`DELETE FROM symbols WHERE file_path = ?`).run(filePath);
+    return { deletedCount: result.changes, objectNames };
+  }
+
+  /**
+   * Remove all labels for a given file path from the labels DB.
+   * Also cleans up the labels FTS index.
+   * Returns the count of deleted label rows.
+   */
+  removeLabelsByFile(filePath: string): number {
+    // The labels_ad trigger handles FTS cleanup for en-US rows
+    const result = this.labelsDb.prepare(`DELETE FROM labels WHERE file_path = ?`).run(filePath);
+    return result.changes;
+  }
+
+  /**
+   * Remove all labels matching a specific label_id + model combination.
+   * Used when a label is known to have been deleted/reverted.
+   */
+  removeLabelById(labelId: string, model: string): number {
+    const result = this.labelsDb.prepare(
+      `DELETE FROM labels WHERE label_id = ? AND model = ?`
+    ).run(labelId, model);
+    return result.changes;
   }
 
   /**
@@ -2518,6 +2566,37 @@ export class XppSymbolIndex {
       INSERT INTO labels_fts(rowid, label_id, text, comment)
       SELECT id, label_id, text, comment FROM labels WHERE language = 'en-US'
     `);
+  }
+
+  // ── Debounced labels FTS rebuild ────────────────────────────────────────────
+  private _labelsFtsTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly LABELS_FTS_SETTLE_MS = 300;
+
+  /**
+   * Schedule a debounced labels FTS rebuild.
+   * Multiple rapid create_label calls defer the expensive rebuild to ~300ms
+   * after the last insertion, so a batch of 5 labels triggers only 1 rebuild.
+   */
+  scheduleLabelsFtsRebuild(): void {
+    if (this._labelsFtsTimer) clearTimeout(this._labelsFtsTimer);
+    this._labelsFtsTimer = setTimeout(() => {
+      this._labelsFtsTimer = null;
+      try {
+        this.rebuildLabelsFts();
+        console.error('[SymbolIndex] Debounced labels FTS rebuild complete');
+      } catch (e) {
+        console.error(`[SymbolIndex] Debounced labels FTS rebuild failed: ${e}`);
+      }
+    }, XppSymbolIndex.LABELS_FTS_SETTLE_MS);
+  }
+
+  /** Flush any pending labels FTS rebuild immediately (for tests / shutdown). */
+  flushLabelsFtsRebuild(): void {
+    if (this._labelsFtsTimer) {
+      clearTimeout(this._labelsFtsTimer);
+      this._labelsFtsTimer = null;
+      this.rebuildLabelsFts();
+    }
   }
 
   /**

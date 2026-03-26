@@ -51,6 +51,50 @@ export function getExtensionPrefix(): string {
 }
 
 /**
+ * Get configurable object suffix from environment.
+ * Returns the raw EXTENSION_SUFFIX value (trailing underscores stripped).
+ * Empty string when not configured.
+ */
+export function getObjectSuffix(): string {
+  return process.env.EXTENSION_SUFFIX?.trim().replace(/_+$/, '') || '';
+}
+
+/**
+ * Apply a configurable suffix to a NEW model element name.
+ * The suffix is appended at the end of the object name.
+ *
+ * Suffix does NOT apply to:
+ *  - Dot-notation extension elements (CustTable.XyExtension — suffix breaks MS naming)
+ *  - Extension classes ending with _Extension (SalesFormLetterXy_Extension)
+ *  - Names that already end with the suffix (case-insensitive)
+ *
+ * Examples with EXTENSION_SUFFIX="ZZ":
+ *   MyTable        → MyTableZZ
+ *   MyClass        → MyClassZZ
+ *   MyTableZZ      → MyTableZZ  (no double-suffix)
+ *   CustTable.XyExtension → CustTable.XyExtension (skip)
+ *   CustTableXy_Extension → CustTableXy_Extension (skip)
+ */
+export function applyObjectSuffix(objectName: string, suffix: string): string {
+  if (!suffix) return objectName;
+
+  // Skip extension elements — suffix would break MS naming conventions
+  if (objectName.includes('.') && objectName.toLowerCase().endsWith('extension')) {
+    return objectName;
+  }
+  if (objectName.endsWith('_Extension')) {
+    return objectName;
+  }
+
+  // Already has the suffix (case-insensitive)
+  if (objectName.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return objectName;
+  }
+
+  return `${objectName}${suffix}`;
+}
+
+/**
  * Resolve the clean prefix to use when naming newly created D365FO objects.
  *
  * Microsoft naming guidelines (https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/extensibility/naming-guidelines-extensions):
@@ -146,8 +190,8 @@ export function applyObjectPrefix(objectName: string, prefix: string): string {
     const basePart = objectName.slice(0, dotIdx);    // e.g., "CustTable"
     const correctSuffix = `${extensionInfix}Extension`;
     // Always return the correctly-cased suffix — never preserve the original casing.
-    // Without this, "VendTrans.ASLExtension" with EXTENSION_PREFIX=ASL_ would not be
-    // normalized to "VendTrans.AslExtension".
+    // Without this, "VendTrans.CTSOExtension" with EXTENSION_PREFIX=CTSO_ would not be
+    // normalized to "VendTrans.CtsoExtension".
     return `${basePart}.${correctSuffix}`;
   }
 

@@ -350,7 +350,7 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 > - All parameters are **optional** — model name and packagePath are auto-detected from `.mcp.json`.
 > - If `run_bp_check` returns an error about a missing binary, it means `packagePath` in `.mcp.json` is wrong — fix the config, do NOT switch to PowerShell / Developer PowerShell or `review_workspace_changes`.
 > - `review_workspace_changes` is for **git diff code review only** — NOT a substitute for BP check, and NOT for verifying that `modify_d365fo_file` succeeded.
-> - After `modify_d365fo_file` or `create_d365fo_file`, always call `update_symbol_index(filePath)` first, then `get_class_info` or `get_method_source` to confirm the change landed. Never use `review_workspace_changes` as a verification step.
+> - After `modify_d365fo_file` or `create_d365fo_file`, the bridge and Redis cache are **auto-refreshed** — you can call `get_class_info` or `get_method_source` immediately to verify the change. An explicit `update_symbol_index(filePath)` call is **no longer required** but remains available for edge cases (e.g. files modified outside MCP tools). Never use `review_workspace_changes` as a verification step.
 
 > ### ⚠️ CRITICAL — `get_form_info` WORKS for ALL D365FO forms
 >
@@ -408,6 +408,7 @@ For any D365FO request, **start with MCP tools — never** `code_search`, `grep_
 24. **Available `generate_code` patterns** include: `batch-job`, `sysoperation`, `table-extension`, `class-extension`, `event-handler`, `security-privilege`, `menu-item`, `data-entity`, `ssrs-report-full` (generates DataContract + DP + Controller), `lookup-form` (SysTableLookup static method), `form-handler` (`[ExtensionOf(formStr(...))]` — pass `name`=FormName), `form-datasource-extension` (`[ExtensionOf(formDataSourceStr(Form, DS))]` — pass `name`=FormName + `baseName`=DataSourceName), `form-control-extension` (`[ExtensionOf(formControlStr(Form, Control))]` — pass `name`=FormName + `baseName`=ControlName; use `get_form_info` to find the exact control name first), `map-extension` (`[ExtensionOf(mapStr(...))]`), `dialog-box`, `dimension-controller`, `number-seq-handler`, `display-menu-controller`, `data-entity-staging`, `service-class-ais`, `business-event` (BusinessEventsBase subclass + contract — triggers for Power Automate / Service Bus), `custom-telemetry` (Application Insights custom event/metric emission via SysApplicationInsightsEventLogger), `feature-class` (FeatureClassAttribute class for Feature Management workspace), `composite-entity` (header + line composite data entity for DMF), `custom-service` (Service class + Service Group + request/response contracts), `er-custom-function` (ERExpressionCustomFunctionProvider for ER formula designer).
 25. **Available `generate_smart_form` patterns** include: `SimpleList`, `SimpleListDetails`, `DetailsMaster`, `DetailsTransaction`, `Dialog`, `TableOfContents`, `Lookup`, `ListPage`, `Workspace` (operational workspace with panorama sections and KPI tile area).
 26. **NEVER** call a method or API marked with `[SysObsolete]` (or `[Obsolete]` in C# interop). The attribute message almost always names the replacement — read it and use that replacement instead. If you encounter an obsolete symbol while reading existing code with `get_method_source` or in `analyze_code_patterns` output, verify the replacement before generating any call to it. Common examples:
+27. **NEVER** switch the active project autonomously. `get_workspace_info(projectName=...)` is a **user-initiated** action ONLY. The MCP server auto-detects the correct project from the VS 2022 workspace (`roots/list`). If `get_workspace_info()` (with no arguments) returns a model name — that IS the correct model, determined by the solution the user has open. **NEVER** call `get_workspace_info(projectName="SomeOtherModel")` because you *think* the task belongs to a different model. The user decides which solution to open; you work within it. If you genuinely believe the task targets a different model, **ASK the user** — do NOT switch silently.
     - `today()` → `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`
     - `SysQuery::findOrCreateRange()` → `SysQuery::findOrCreateRange()` still valid but many helpers around it changed — check the attribute
     - When `get_method_source` or `search` returns a method body containing `[SysObsolete(...)]` on it, do NOT generate calls to that method. Use the replacement stated in the attribute string.
@@ -744,16 +745,16 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 | `get_report_info(reportName)` | **Read AxReport structure** — datasets, fields, designs, RDL summary. Use INSTEAD of PowerShell Get-Content |
 | `get_method_source(className, methodName)` | **Full X++ source code** — use when you need to understand what the method does (complete business logic, conditions, loops) |
 | `get_method_signature(className, methodName, includeCocTemplate?)` | **Exact signature** — required before CoC. Pass `includeCocTemplate: true` only when writing a CoC extension |
-| `find_references(targetName, targetType?)` | Where-used analysis |
+| `find_references(targetName, targetType?)` | Where-used analysis — on Windows VM returns enriched results from `DYNAMICSXREFDB`: `referenceType` (call/extends/field-access/type-reference), `callerClass`, `callerMethod`, summary by type, top callers |
 
 ### Security & Extensions
 | Tool | Use for |
 |------|---------|
-| `analyze_extension_points(objectName, showExistingExtensions?)` | What CoC methods, delegates, and data events does an object expose? Start here before any extension work |
+| `analyze_extension_points(objectName, showExistingExtensions?)` | What CoC methods, delegates, and data events does an object expose? Start here before any extension work. Bridge enrichment: falls back to `DYNAMICSXREFDB` for existing extension detection with method-level CoC detail when SQLite index is empty |
 | `recommend_extension_strategy(goal, objectName?, scenario?)` | Which extensibility mechanism is correct for a given scenario? Prevents wrong choices (CoC vs event vs Business Event vs data entity) |
 | `get_table_extension_info(tableName)` | All extensions of a table across all models: added fields, indexes, methods |
-| `find_coc_extensions(className, methodName?)` | Which extension classes use CoC to wrap a given class/method? |
-| `find_event_handlers(targetTable)` | All `[SubscribesTo]` event handler methods for a table or class |
+| `find_coc_extensions(className, methodName?)` | Which extension classes use CoC to wrap a given class/method? Bridge-first: returns `wrappedMethods` per extension class from `DYNAMICSXREFDB` (compiler-resolved, not FTS) |
+| `find_event_handlers(targetTable)` | All event handler methods for a table or class. Bridge-first: per-method entries from `DYNAMICSXREFDB` with `eventName`, `handlerType` classification (dataEvent/delegate/pre/post), supports `eventName` and `handlerType` filtering |
 | `get_security_artifact_info(name)` | Privilege/Duty/Role: contained entries, full hierarchy chain |
 | `get_security_coverage_for_object(objectName, objectType?)` | Which roles, duties, and privileges grant access to a form, table, or menu item? |
 | `get_menu_item_info(name, itemType?)` | Menu item target object, type, and full security privilege chain |
@@ -766,7 +767,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 | `analyze_code_patterns(scenario)` | Find patterns before generating code |
 | `suggest_method_implementation(className, methodName)` | Real implementation examples |
 | `analyze_class_completeness(className)` | Missing standard methods |
-| `get_api_usage_patterns(apiName)` | Typical initialization & usage |
+| `get_api_usage_patterns(apiName)` | Typical initialization & usage. Bridge-first: returns compiler-resolved callers from `DYNAMICSXREFDB` grouped by class with method list and call count |
 | `generate_code(pattern, name)` | Boilerplate: `class`, `runnable`, `form-handler`, `data-entity`, `batch-job`, `table-extension`, `sysoperation`, `event-handler` |
 
 ### Smart Object Generation
@@ -790,7 +791,7 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 ### SDLC & Build Tools
 | Tool | Use for |
 |------|---------|
-| `update_symbol_index(filePath)` | **Call after every `modify_d365fo_file` AND `create_d365fo_file`** so that `get_class_info`, `get_method_source`, and `search` return fresh results. Without this, the index is stale and lookups for newly-added methods will return ❌ not found. |
+| `update_symbol_index(filePath)` | Re-index a file in SQLite and refresh the bridge. **No longer required** after `create_d365fo_file` / `modify_d365fo_file` (auto-refresh is built-in). Still useful for files modified outside MCP tools (e.g. manual edits, git pull). |
 | `build_d365fo_project(projectPath)` | Run MSBuild compilation locally to capture errors. |
 | `trigger_db_sync(modelName, tableName?)` | Run a database sync for the current model. |
 | `run_bp_check(projectPath, targetFilter?)` | Run Microsoft Best Practices (xppbp.exe) analysis. |
@@ -808,16 +809,24 @@ c) Save to disk:                     create_d365fo_file(objectType="report", obj
 |------|---------|
 | `search_labels(query)` | **Always call first** before creating labels |
 | `get_label_info(labelId?, model?)` | Get translations, list label files |
-| `create_label(labelId, labelFileId, model, translations[])` | Create new label |
+| `create_label(labelId, labelFileId, model, translations[])` | Create new label + add to VS project |
 | `rename_label(oldLabelId, newLabelId, labelFileId, model)` | Rename label ID in .label.txt, X++ source, and XML metadata |
 
 > **Label ID naming — NO prefix!**
 > Label IDs describe the **meaning of the text**, not the owning object or model.
 > ✅ CORRECT: `CustomerName`, `InvoiceDate`, `ErrorAmountNegative`, `FieldAccountNum`
-> ❌ WRONG (prefixed like an object): `AslCoreCustomerName`, `ContosoExtInvoiceDate`
-> The label *file* (e.g. `@AslCore:CustomerName`) already identifies the owning model — the ID itself needs no prefix.
+> ❌ WRONG (prefixed like an object): `MyModelCustomerName`, `ContosoExtInvoiceDate`
+> The label *file* (e.g. `@MyModel:CustomerName`) already identifies the owning model — the ID itself needs no prefix.
 
 > **Label file creation:** When calling `create_label` for the first time in a model (label file does not exist yet), **always** pass `createLabelFileIfMissing: true`. Without it the tool returns an error. Pass translations for all required languages (e.g. `en-US`, `cs`, `de`) — the tool creates the directory structure and XML descriptors for each language automatically. If you provide a translation for a language that does not yet have a folder (e.g. cs), set `createLabelFileIfMissing: true` so the folder and descriptor are created.
+
+> **Label files and VS project (.rnrproj):** `create_label` automatically adds AxLabelFile XML descriptors to the VS project (`.rnrproj`) via `addToProject=true` (default). This ensures label files are visible in Solution Explorer and included in builds.
+> - `addToProject` defaults to `true` — no action needed for the common case.
+> - If the tool response shows `⚠️ Could not add label descriptors to VS project`, it means `projectPath` could not be resolved. Fix by:
+>   1. Passing `projectPath` explicitly: `create_label(..., projectPath="K:\\VSProjects\\MyModel\\MyModel.rnrproj")`
+>   2. Or setting `projectPath` in `.mcp.json` config
+>   3. Or passing `solutionPath` so the tool can scan for `.rnrproj` automatically
+> - **NEVER** tell the user that `create_label` cannot add labels to the project — it CAN. If the warning appears, troubleshoot the `projectPath` resolution instead.
 
 ## File Paths & Model Name
 
