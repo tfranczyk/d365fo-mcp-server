@@ -8,6 +8,21 @@ import { withOperationLock } from '../utils/operationLocks.js';
 const execFileAsync = util.promisify(execFile);
 const execAsync = util.promisify(exec);
 
+/**
+ * Escape an argument for safe use in a Windows cmd.exe command line.
+ * Wraps in double quotes if it contains whitespace or shell metacharacters,
+ * and escapes any embedded double quotes.
+ */
+function escapeCmdArg(arg: string): string {
+  if (arg === '') {
+    return '""';
+  }
+  // Characters that can change cmd.exe parsing semantics
+  const needsQuoting = /[\s&|<>^"]/u.test(arg);
+  let escaped = arg.replace(/"/g, '\\"');
+  return needsQuoting ? `"${escaped}"` : escaped;
+}
+
 // Known MSBuild locations on D365FO development VMs (in order of preference)
 const MSBUILD_CANDIDATES = [
   'C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe',
@@ -99,9 +114,9 @@ export const buildProjectTool = async (params: any, _context: any) => {
       // `call "VsDevCmd.bat"` initialises VS environment variables in-process so that
       // D365FO MSBuild task assemblies are discoverable by the subsequent MSBuild call
       // (Node.js exec() uses cmd.exe /C on Windows, so && chaining works correctly).
-      const msbuildToken = msbuildExe.includes(' ') ? `"${msbuildExe}"` : msbuildExe;
-      const argsToken = buildArgs.map(a => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-      const fullCmd = `call "${vsDevCmdPath}" && ${msbuildToken} ${argsToken}`;
+      const msbuildToken = escapeCmdArg(msbuildExe!);
+      const argsToken = buildArgs.map(a => escapeCmdArg(a)).join(' ');
+      const fullCmd = `call ${escapeCmdArg(vsDevCmdPath)} && ${msbuildToken} ${argsToken}`;
       console.error(`[build_d365fo_project] Running via VsDevCmd: ${fullCmd}`);
       ({ stdout, stderr } = await withOperationLock(
         `build:${resolvedProjectPath}`,
