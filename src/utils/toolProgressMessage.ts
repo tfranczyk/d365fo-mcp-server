@@ -114,7 +114,7 @@ export function buildProgressMessage(toolName: string, args: Record<string, any>
     case 'generate_code':
       return `🔧 Generating code pattern "${a.pattern ?? ''}" for ${a.name ?? ''}`;
     case 'code_completion':
-      return `💡 Code completion for "${a.symbolName ?? ''}"`;
+      return `💡 Code completion for "${a.className ?? ''}"`;
     default:
       return `⚙️ Running ${toolName}`;
   }

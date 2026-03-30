@@ -10,7 +10,7 @@ import { validateWorkspacePath } from '../workspace/workspaceUtils.js';
 import { tryBridgeCompletion } from '../bridge/index.js';
 
 const CompletionArgsSchema = z.object({
-  className: z.string().describe('Class or table name'),
+  className: z.string().min(1, 'className is required').describe('Class or table name'),
   prefix: z.string().optional().default('').describe('Method/field name prefix to filter'),
   includeWorkspace: z.boolean().optional().default(false).describe('Whether to include workspace files'),
   workspacePath: z.string().optional().describe('Workspace path to search'),
