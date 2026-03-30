@@ -19,7 +19,38 @@ function escapeCmdArg(arg: string): string {
   }
   // Characters that can change cmd.exe parsing semantics
   const needsQuoting = /[\s&|<>^"]/u.test(arg);
-  let escaped = arg.replace(/"/g, '\\"');
+  // Escape double quotes and handle backslashes preceding them in a cmd.exe-compatible way.
+  // Inside a quoted argument, each run of N backslashes followed by a quote should become
+  // 2N backslashes followed by two quotes, so that the called program receives the intented characters.
+  let escaped = '';
+  for (let i = 0; i < arg.length; ) {
+    const ch = arg[i];
+    if (ch === '\\') {
+      // Count run of backslashes
+      let j = i;
+      while (j < arg.length && arg[j] === '\\') {
+        j++;
+      }
+      const numBackslashes = j - i;
+      const nextChar = arg[j];
+      if (nextChar === '"') {
+        // Double the backslashes, then escape the quote by doubling it
+        escaped += '\\'.repeat(numBackslashes * 2) + '""';
+        i = j + 1;
+      } else {
+        // No following quote: keep backslashes as-is
+        escaped += '\\'.repeat(numBackslashes);
+        i = j;
+      }
+    } else if (ch === '"') {
+      // Bare quote: escape by doubling
+      escaped += '""';
+      i++;
+    } else {
+      escaped += ch;
+      i++;
+    }
+  }
   return needsQuoting ? `"${escaped}"` : escaped;
 }
 
