@@ -25,8 +25,11 @@ export interface McpContext {
 }
 
 export interface McpConfig {
+  /** Top-level context — preferred location (avoids VS 2022 treating it as an MCP server). */
+  context?: McpContext;
   servers: {
     [key: string]: any;
+    /** @deprecated Put context at top level instead. Kept for backward compatibility. */
     context?: McpContext;
   };
 }
@@ -599,7 +602,9 @@ class ConfigManager {
    * Merges .mcp.json config with runtime context (runtime takes priority)
    */
   getContext(): McpContext | null {
-    const fileContext = this.config?.servers.context || null;
+    // Prefer top-level context (doesn't clash with VS 2022 server discovery).
+    // Fall back to servers.context for backward compatibility.
+    const fileContext = this.config?.context || this.config?.servers?.context || null;
     // Per-request context (AsyncLocalStorage) takes priority over the shared
     // runtimeContext singleton — this prevents workspace paths from bleeding
     // between concurrent HTTP requests from different users.
