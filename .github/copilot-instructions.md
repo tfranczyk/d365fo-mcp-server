@@ -136,6 +136,10 @@ VS 2022 shows only "ran tool_name" — no output. **Always** write 1 sentence be
 | Diagnose X++ error | `get_d365fo_error_help(errorText)` |
 | X++ knowledge/patterns | `get_xpp_knowledge(topic)` → `analyze_code_patterns(scenario)` |
 | Create table/form | `generate_smart_table()` / `generate_smart_form()` |
+| Best practices / BP check | `run_bp_check()` — NEVER manually review code with `get_method_source` |
+| Build project | `build_d365fo_project()` |
+| Sync database | `trigger_db_sync()` |
+| Run tests | `run_systest_class()` |
 
 ---
 
@@ -169,6 +173,7 @@ VS 2022 shows only "ran tool_name" — no output. **Always** write 1 sentence be
 26. `review_workspace_changes` = git diff code review only. NOT for verifying modify/create success.
 27. `get_form_info` works for ALL forms (standard + custom). If ⚠️ warning, retry with `filePath=`.
 28. **After completing a series of changes** (multiple `create_d365fo_file` / `modify_d365fo_file` calls), **automatically run `build_d365fo_project()`**. If the build reports X++ errors, fix them immediately using `modify_d365fo_file` and rebuild until clean.
+29. **"Check best practices" / "BP check" → ALWAYS call `run_bp_check()`**. NEVER manually iterate `get_method_source` to review code for BP compliance — the BP checker tool is authoritative and covers all rules.
 
 ### AxClass sourceCode Format
 
