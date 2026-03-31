@@ -31,13 +31,16 @@ vi.mock('../../src/utils/operationLocks.js', () => ({
   withOperationLock: (_key: string, fn: () => any) => fn(),
 }));
 
+import path from 'path';
 import { buildProjectTool } from '../../src/tools/buildProject';
 
 // --- helpers -----------------------------------------------------------------
+// Use path.join so the separators match what the production code produces
+// (backslash on Windows, forward slash on Linux CI).
 const VSWHERE = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe';
 const VS_INSTALL = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise';
-const VSDEVCMD = `${VS_INSTALL}\\Common7\\Tools\\VsDevCmd.bat`;
-const MSBUILD = `${VS_INSTALL}\\MSBuild\\Current\\Bin\\MSBuild.exe`;
+const VSDEVCMD = path.join(VS_INSTALL, 'Common7', 'Tools', 'VsDevCmd.bat');
+const MSBUILD = path.join(VS_INSTALL, 'MSBuild', 'Current', 'Bin', 'MSBuild.exe');
 
 /** Make `access()` succeed only for the listed paths. */
 function allowPaths(paths: string[]) {
@@ -143,8 +146,8 @@ describe('build_d365fo_project', () => {
 
   it('handles VS paths with spaces correctly in temp batch file', async () => {
     const spaceInstall = 'C:\\Program Files\\Microsoft Visual Studio\\2026\\Preview';
-    const spaceDevCmd = `${spaceInstall}\\Common7\\Tools\\VsDevCmd.bat`;
-    const spaceMsbuild = `${spaceInstall}\\MSBuild\\Current\\Bin\\MSBuild.exe`;
+    const spaceDevCmd = path.join(spaceInstall, 'Common7', 'Tools', 'VsDevCmd.bat');
+    const spaceMsbuild = path.join(spaceInstall, 'MSBuild', 'Current', 'Bin', 'MSBuild.exe');
 
     allowPaths([VSWHERE, spaceMsbuild, spaceDevCmd]);
     setupVswhere(spaceInstall);
@@ -158,6 +161,7 @@ describe('build_d365fo_project', () => {
   });
 
   it('falls back to hardcoded candidates when vswhere is unavailable', async () => {
+    // These must match the hardcoded candidate strings in buildProject.ts exactly
     const hardcodedMsbuild =
       'C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe';
     const hardcodedDevCmd =
