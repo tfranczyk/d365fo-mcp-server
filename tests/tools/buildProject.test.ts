@@ -54,7 +54,7 @@ function setupVswhere(installPath: string) {
       if (file === VSWHERE) {
         return { stdout: `${installPath}\r\n`, stderr: '' };
       }
-      // cmd.exe or MSBuild invocation — succeed with empty output
+      // cmd.exe or MSBuild invocation - succeed with empty output
       return { stdout: '', stderr: '' };
     },
   );
@@ -85,7 +85,7 @@ describe('build_d365fo_project', () => {
     // VsDevCmd and MSBuild must NOT be on the same line (no && chaining)
     expect(batContent).not.toContain('&&');
 
-    // cmd.exe should be invoked with just the temp file path — no embedded quotes
+    // cmd.exe should be invoked with just the temp file path - no embedded quotes
     const cmdCall = execFilePromisified.mock.calls.find(
       (c: any[]) => c[0] === 'cmd.exe',
     );
