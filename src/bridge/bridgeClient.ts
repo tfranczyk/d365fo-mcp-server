@@ -704,8 +704,10 @@ export async function createBridgeClient(options: {
   if (!packagesPath) {
     console.error(
       '[BridgeClient] No packagesPath detected — bridge disabled.\n' +
-      '  Set "packagePath" in .mcp.json context, or ensure PackagesLocalDirectory exists.\n' +
-      '  Checked: options.packagesPath=' + (options.packagesPath ?? 'undefined') + ', env.PackagesPath=' + (process.env.PackagesPath ?? 'undefined')
+      '  Set "packagePath" in .mcp.json context, or "D365FO_PACKAGE_PATH" env var.\n' +
+      '  Checked: options.packagesPath=' + (options.packagesPath ?? 'undefined') +
+      ', D365FO_PACKAGE_PATH=' + (process.env.D365FO_PACKAGE_PATH ?? 'undefined') +
+      ', PACKAGES_PATH=' + (process.env.PACKAGES_PATH ?? 'undefined')
     );
     return null;
   }
@@ -729,8 +731,13 @@ export async function createBridgeClient(options: {
 }
 
 function detectPackagesPath(): string | null {
+  // Check canonical env vars first — these take priority over well-known path probes.
+  // D365FO_PACKAGE_PATH is the env var read by configManager and exposed via .mcp.json env{} blocks.
+  // PACKAGES_PATH is the legacy name documented in .env.example.
   const candidates = [
-    process.env.PackagesPath ?? '',
+    process.env.D365FO_PACKAGE_PATH ?? '',
+    process.env.PACKAGES_PATH ?? '',
+    // Well-known fallback locations (traditional D365FO VM layouts)
     'C:\\AosService\\PackagesLocalDirectory',
     'C:\\AOSService\\PackagesLocalDirectory',
     'J:\\AosService\\PackagesLocalDirectory',
