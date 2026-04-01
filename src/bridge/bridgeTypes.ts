@@ -28,6 +28,7 @@ export interface BridgeReadyPayload {
   version: string;
   status: 'ready';
   packagesPath: string;
+  referencePackagesPath?: string;
   metadataAvailable: boolean;
   xrefAvailable: boolean;
 }

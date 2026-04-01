@@ -16,6 +16,8 @@ namespace D365MetadataBridge.Services
     {
         private IMetadataProvider _provider;
         private readonly string _packagesPath;
+        private readonly string? _referencePackagesPath;
+        private IMetadataProvider? _referenceProvider;
 
         /// <summary>
         /// Exposes the current provider for MetadataWriteService initialization.
@@ -27,13 +29,52 @@ namespace D365MetadataBridge.Services
         /// </summary>
         public Action<IMetadataProvider>? OnProviderRefreshed { get; set; }
 
-        public MetadataReadService(string packagesPath)
+        /// <summary>
+        /// Initializes the metadata read service.
+        /// </summary>
+        /// <param name="packagesPath">Primary packages path (custom packages in UDE, or standard PackagesLocalDirectory).</param>
+        /// <param name="referencePackagesPath">
+        /// Optional secondary packages path (UDE: Microsoft FrameworkDirectory).
+        /// When provided, all read operations fall back to this provider if the primary
+        /// does not contain the requested object — enabling resolution of both custom
+        /// and Microsoft-shipped metadata in UDE environments.
+        /// </param>
+        public MetadataReadService(string packagesPath, string? referencePackagesPath = null)
         {
             _packagesPath = packagesPath;
+            _referencePackagesPath = referencePackagesPath;
             // Use DiskProvider (standalone mode) — avoids .NET Framework EventDescriptor dependency
             var factory = new MetadataProviderFactory();
             _provider = factory.CreateDiskProvider(packagesPath);
             Console.Error.WriteLine($"[MetadataService] Initialized via DiskProvider: {packagesPath}");
+
+            if (referencePackagesPath != null)
+            {
+                try
+                {
+                    _referenceProvider = factory.CreateDiskProvider(referencePackagesPath);
+                    Console.Error.WriteLine($"[MetadataService] Reference DiskProvider: {referencePackagesPath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[WARN] Failed to initialize reference DiskProvider at '{referencePackagesPath}': {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns the first IMetadataProvider for which <paramref name="exists"/> returns true.
+        /// Checks the primary provider first, then the reference provider (UDE fallback).
+        /// Returns null only when neither provider contains the requested object.
+        /// </summary>
+        private IMetadataProvider? PickProvider(Func<IMetadataProvider, bool> exists)
+        {
+            try { if (exists(_provider)) return _provider; } catch { }
+            if (_referenceProvider != null)
+            {
+                try { if (exists(_referenceProvider)) return _referenceProvider; } catch { }
+            }
+            return null;
         }
 
         // ========================
@@ -126,60 +167,68 @@ namespace D365MetadataBridge.Services
                     case "table":
                     case "table-extension":
                     {
-                        if (!_provider.Tables.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Tables.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Tables.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Tables.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "class":
                     case "class-extension":
                     {
-                        if (!_provider.Classes.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Classes.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Classes.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Classes.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "enum":
                     {
-                        if (!_provider.Enums.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Enums.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Enums.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Enums.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "edt":
                     {
-                        if (!_provider.Edts.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Edts.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Edts.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Edts.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "form":
                     case "form-extension":
                     {
-                        if (!_provider.Forms.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Forms.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Forms.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Forms.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "query":
                     {
-                        if (!_provider.Queries.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Queries.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Queries.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Queries.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "view":
                     {
-                        if (!_provider.Views.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Views.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Views.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Views.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     case "report":
                     {
-                        if (!_provider.Reports.Exists(objectName)) return null;
+                        var prov = PickProvider(p => p.Reports.Exists(objectName));
+                        if (prov == null) return null;
                         string? model = null;
-                        try { var mi = _provider.Reports.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                        try { var mi = prov.Reports.GetModelInfo(objectName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
                         return new { exists = true, objectType, objectName, model };
                     }
                     default:
@@ -198,8 +247,9 @@ namespace D365MetadataBridge.Services
         // ========================
         public TableInfoModel? ReadTable(string tableName)
         {
-            if (!_provider.Tables.Exists(tableName)) return null;
-            var table = _provider.Tables.Read(tableName);
+            var prov = PickProvider(p => p.Tables.Exists(tableName));
+            if (prov == null) return null;
+            var table = prov.Tables.Read(tableName);
             if (table == null) return null;
 
             var result = new TableInfoModel
@@ -217,7 +267,7 @@ namespace D365MetadataBridge.Services
                 SupportInheritance = Safe(() => table.SupportInheritance.ToString()),
             };
 
-            try { var mi = _provider.Tables.GetModelInfo(tableName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Tables.GetModelInfo(tableName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             try { foreach (var f in table.Fields) result.Fields.Add(MapField(f)); } catch (Exception ex) { Warn("fields", tableName, ex); }
             try { foreach (var g in table.FieldGroups) { var gm = new FieldGroupModel { Name = g.Name, Label = Safe(() => g.Label) }; try { foreach (var f in g.Fields) gm.Fields.Add(Safe(() => f.DataField) ?? f.Name); } catch { } result.FieldGroups.Add(gm); } } catch (Exception ex) { Warn("fieldGroups", tableName, ex); }
@@ -260,8 +310,9 @@ namespace D365MetadataBridge.Services
         // ========================
         public ClassInfoModel? ReadClass(string className)
         {
-            if (!_provider.Classes.Exists(className)) return null;
-            var cls = _provider.Classes.Read(className);
+            var prov = PickProvider(p => p.Classes.Exists(className));
+            if (prov == null) return null;
+            var cls = prov.Classes.Read(className);
             if (cls == null) return null;
 
             var result = new ClassInfoModel
@@ -274,7 +325,7 @@ namespace D365MetadataBridge.Services
                 Declaration = Safe(() => cls.Declaration),
             };
 
-            try { var mi = _provider.Classes.GetModelInfo(className); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Classes.GetModelInfo(className); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             // Methods from cls.Methods (KeyedObjectCollection<AxMethod>) — the actual methods with source
             // Note: cls.SourceCode.Methods is AxMethodPropertyCollection (empty for disk reads) — DON'T use it
@@ -304,10 +355,11 @@ namespace D365MetadataBridge.Services
         {
             var result = new MethodSourceModel { ClassName = className, MethodName = methodName };
 
-            // Try class first
-            if (_provider.Classes.Exists(className))
+            // Try class first (checks primary then reference provider)
+            var classProv = PickProvider(p => p.Classes.Exists(className));
+            if (classProv != null)
             {
-                var cls = _provider.Classes.Read(className);
+                var cls = classProv.Classes.Read(className);
                 if (cls != null)
                 {
                     if (string.Equals(methodName, "classDeclaration", StringComparison.OrdinalIgnoreCase))
@@ -337,10 +389,11 @@ namespace D365MetadataBridge.Services
                 }
             }
 
-            // Try table
-            if (_provider.Tables.Exists(className))
+            // Try table (checks primary then reference provider)
+            var tableProv = PickProvider(p => p.Tables.Exists(className));
+            if (tableProv != null)
             {
-                var table = _provider.Tables.Read(className);
+                var table = tableProv.Tables.Read(className);
                 if (table?.Methods != null)
                 {
                     try
@@ -368,13 +421,14 @@ namespace D365MetadataBridge.Services
         // ========================
         public EnumInfoModel? ReadEnum(string enumName)
         {
-            if (!_provider.Enums.Exists(enumName)) return null;
-            var e = _provider.Enums.Read(enumName);
+            var prov = PickProvider(p => p.Enums.Exists(enumName));
+            if (prov == null) return null;
+            var e = prov.Enums.Read(enumName);
             if (e == null) return null;
 
             var result = new EnumInfoModel { Name = e.Name, Label = Safe(() => e.Label), HelpText = Safe(() => e.HelpText) };
             try { result.IsExtensible = e.IsExtensible; } catch { }
-            try { var mi = _provider.Enums.GetModelInfo(enumName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Enums.GetModelInfo(enumName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             try
             {
@@ -395,8 +449,9 @@ namespace D365MetadataBridge.Services
         // ========================
         public EdtInfoModel? ReadEdt(string edtName)
         {
-            if (!_provider.Edts.Exists(edtName)) return null;
-            var edt = _provider.Edts.Read(edtName);
+            var prov = PickProvider(p => p.Edts.Exists(edtName));
+            if (prov == null) return null;
+            var edt = prov.Edts.Read(edtName);
             if (edt == null) return null;
 
             var result = new EdtInfoModel
@@ -408,7 +463,7 @@ namespace D365MetadataBridge.Services
                 HelpText = Safe(() => edt.HelpText),
             };
 
-            try { var mi = _provider.Edts.GetModelInfo(edtName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Edts.GetModelInfo(edtName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
             if (edt is AxEdtString s) result.StringSize = SafeInt(() => s.StringSize, 0);
             if (edt is AxEdtEnum en) result.EnumType = Safe(() => en.EnumType);
             try { result.ReferenceTable = Safe(() => ((dynamic)edt).ReferenceTable?.Table); } catch { }
@@ -436,12 +491,13 @@ namespace D365MetadataBridge.Services
         // ========================
         public FormInfoModel? ReadForm(string formName)
         {
-            if (!_provider.Forms.Exists(formName)) return null;
-            var form = _provider.Forms.Read(formName);
+            var prov = PickProvider(p => p.Forms.Exists(formName));
+            if (prov == null) return null;
+            var form = prov.Forms.Read(formName);
             if (form == null) return null;
 
             var result = new FormInfoModel { Name = form.Name };
-            try { var mi = _provider.Forms.GetModelInfo(formName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Forms.GetModelInfo(formName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             // Form pattern / style
             try { result.FormPattern = Safe(() => ((dynamic)form).Design?.Pattern) ?? Safe(() => ((dynamic)form).Design?.Style?.ToString()); } catch { }
@@ -520,11 +576,12 @@ namespace D365MetadataBridge.Services
         // ========================
         public QueryInfoModel? ReadQuery(string queryName)
         {
-            if (!_provider.Queries.Exists(queryName)) return null;
-            var q = _provider.Queries.Read(queryName);
+            var prov = PickProvider(p => p.Queries.Exists(queryName));
+            if (prov == null) return null;
+            var q = prov.Queries.Read(queryName);
             if (q == null) return null;
             var result = new QueryInfoModel { Name = q.Name };
-            try { var mi = _provider.Queries.GetModelInfo(queryName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Queries.GetModelInfo(queryName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
             try { result.Description = Safe(() => ((dynamic)q).Description); } catch { }
             try { dynamic dq = q; if (dq.DataSources != null) foreach (dynamic ds in dq.DataSources) result.DataSources.Add(MapQueryDataSource(ds)); } catch (Exception ex) { Warn("dataSources", queryName, ex); }
             return result;
@@ -532,11 +589,12 @@ namespace D365MetadataBridge.Services
 
         public ViewInfoModel? ReadView(string viewName)
         {
-            if (!_provider.Views.Exists(viewName)) return null;
-            var v = _provider.Views.Read(viewName);
+            var prov = PickProvider(p => p.Views.Exists(viewName));
+            if (prov == null) return null;
+            var v = prov.Views.Read(viewName);
             if (v == null) return null;
             var result = new ViewInfoModel { Name = v.Name, Label = Safe(() => v.Label), Query = Safe(() => v.Query) };
-            try { var mi = _provider.Views.GetModelInfo(viewName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.Views.GetModelInfo(viewName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             // Gap-fill: isPublic, isReadOnly, PK
             try { result.IsPublic = IsYes(() => ((dynamic)v).IsPublic); } catch { }
@@ -645,11 +703,12 @@ namespace D365MetadataBridge.Services
 
         public DataEntityInfoModel? ReadDataEntity(string entityName)
         {
-            if (!_provider.DataEntityViews.Exists(entityName)) return null;
-            var e = _provider.DataEntityViews.Read(entityName);
+            var prov = PickProvider(p => p.DataEntityViews.Exists(entityName));
+            if (prov == null) return null;
+            var e = prov.DataEntityViews.Read(entityName);
             if (e == null) return null;
             var result = new DataEntityInfoModel { Name = e.Name, Label = Safe(() => e.Label), PublicEntityName = Safe(() => e.PublicEntityName), PublicCollectionName = Safe(() => e.PublicCollectionName), IsPublic = IsYes(() => e.IsPublic) };
-            try { var mi = _provider.DataEntityViews.GetModelInfo(entityName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+            try { var mi = prov.DataEntityViews.GetModelInfo(entityName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
             // Gap-fill: isReadOnly, entityCategory, DMF, stagingTable
             try { result.IsReadOnly = IsYes(() => ((dynamic)e).IsReadOnly); } catch { }
@@ -719,11 +778,12 @@ namespace D365MetadataBridge.Services
         {
             try
             {
-                if (!_provider.Reports.Exists(reportName)) return null;
-                var r = _provider.Reports.Read(reportName);
+                var prov = PickProvider(p => p.Reports.Exists(reportName));
+                if (prov == null) return null;
+                var r = prov.Reports.Read(reportName);
                 if (r == null) return null;
                 var result = new ReportInfoModel { Name = r.Name };
-                try { var mi = _provider.Reports.GetModelInfo(reportName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
+                try { var mi = prov.Reports.GetModelInfo(reportName); if (mi?.Count > 0) result.Model = mi.First().Name; } catch { }
 
                 // DataSets with fields and type info
                 try
@@ -1100,35 +1160,46 @@ namespace D365MetadataBridge.Services
         public SearchResultModel SearchObjects(string type, string query, int maxResults)
         {
             var result = new SearchResultModel();
+            // seen set prevents duplicate names when the same object exists in both providers
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             void Search(string objType, IList<string> keys)
             {
                 foreach (var n in keys)
                 {
                     if (result.Results.Count >= maxResults) return;
-                    if (n.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (n.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 && seen.Add(n))
                         result.Results.Add(new SearchItemModel { Name = n, Type = objType });
                 }
             }
 
-            try
+            void SearchProvider(IMetadataProvider prov)
             {
-                switch (type.ToLowerInvariant())
+                try
                 {
-                    case "table": Search("table", _provider.Tables.GetPrimaryKeys()); break;
-                    case "class": Search("class", _provider.Classes.GetPrimaryKeys()); break;
-                    case "enum": Search("enum", _provider.Enums.GetPrimaryKeys()); break;
-                    case "edt": Search("edt", _provider.Edts.GetPrimaryKeys()); break;
-                    case "form": Search("form", _provider.Forms.GetPrimaryKeys()); break;
-                    default:
-                        Search("table", _provider.Tables.GetPrimaryKeys());
-                        Search("class", _provider.Classes.GetPrimaryKeys());
-                        Search("enum", _provider.Enums.GetPrimaryKeys());
-                        Search("edt", _provider.Edts.GetPrimaryKeys());
-                        Search("form", _provider.Forms.GetPrimaryKeys());
-                        break;
+                    switch (type.ToLowerInvariant())
+                    {
+                        case "table": Search("table", prov.Tables.GetPrimaryKeys()); break;
+                        case "class": Search("class", prov.Classes.GetPrimaryKeys()); break;
+                        case "enum": Search("enum", prov.Enums.GetPrimaryKeys()); break;
+                        case "edt": Search("edt", prov.Edts.GetPrimaryKeys()); break;
+                        case "form": Search("form", prov.Forms.GetPrimaryKeys()); break;
+                        default:
+                            Search("table", prov.Tables.GetPrimaryKeys());
+                            Search("class", prov.Classes.GetPrimaryKeys());
+                            Search("enum", prov.Enums.GetPrimaryKeys());
+                            Search("edt", prov.Edts.GetPrimaryKeys());
+                            Search("form", prov.Forms.GetPrimaryKeys());
+                            break;
+                    }
                 }
+                catch (Exception ex) { Console.Error.WriteLine($"[WARN] Search error: {ex.Message}"); }
             }
-            catch (Exception ex) { Console.Error.WriteLine($"[WARN] Search error: {ex.Message}"); }
+
+            // Search primary provider first, then reference provider (UDE fallback)
+            SearchProvider(_provider);
+            if (_referenceProvider != null && result.Results.Count < maxResults)
+                SearchProvider(_referenceProvider);
 
             result.TotalCount = result.Results.Count;
             return result;
@@ -1147,7 +1218,14 @@ namespace D365MetadataBridge.Services
             {
                 dynamic providerDynamic = _provider;
                 dynamic privileges = providerDynamic.SecurityPrivileges;
-                dynamic axObj = privileges.Read(name);
+                dynamic? axObj = privileges.Read(name);
+                // Fallback to reference provider (UDE: Microsoft packages)
+                if (axObj == null && _referenceProvider != null)
+                {
+                    dynamic refProv = _referenceProvider!;
+                    privileges = refProv.SecurityPrivileges;
+                    axObj = privileges.Read(name);
+                }
                 if (axObj == null) return null;
 
                 string? model = null;
@@ -1220,7 +1298,14 @@ namespace D365MetadataBridge.Services
             {
                 dynamic providerDynamic = _provider;
                 dynamic duties = providerDynamic.SecurityDuties;
-                dynamic axObj = duties.Read(name);
+                dynamic? axObj = duties.Read(name);
+                // Fallback to reference provider (UDE: Microsoft packages)
+                if (axObj == null && _referenceProvider != null)
+                {
+                    dynamic refProv = _referenceProvider!;
+                    duties = refProv.SecurityDuties;
+                    axObj = duties.Read(name);
+                }
                 if (axObj == null) return null;
 
                 string? model = null;
@@ -1299,7 +1384,14 @@ namespace D365MetadataBridge.Services
             {
                 dynamic providerDynamic = _provider;
                 dynamic roles = providerDynamic.SecurityRoles;
-                dynamic axObj = roles.Read(name);
+                dynamic? axObj = roles.Read(name);
+                // Fallback to reference provider (UDE: Microsoft packages)
+                if (axObj == null && _referenceProvider != null)
+                {
+                    dynamic refProv = _referenceProvider!;
+                    roles = refProv.SecurityRoles;
+                    axObj = roles.Read(name);
+                }
                 if (axObj == null) return null;
 
                 string? model = null;
@@ -1367,7 +1459,6 @@ namespace D365MetadataBridge.Services
         {
             try
             {
-                dynamic providerDynamic = _provider;
                 var tryTypes = itemType.ToLowerInvariant() switch
                 {
                     "display" => new[] { "display" },
@@ -1376,40 +1467,47 @@ namespace D365MetadataBridge.Services
                     _ => new[] { "display", "action", "output" }
                 };
 
-                foreach (var tryType in tryTypes)
+                // Try primary provider first, then reference provider (UDE fallback)
+                foreach (var prov in new[] { _provider, _referenceProvider }.Where(p => p != null))
                 {
-                    try
+                    dynamic providerDynamic = prov!;
+
+                    foreach (var tryType in tryTypes)
                     {
-                        dynamic items = tryType switch
+                        try
                         {
-                            "display" => providerDynamic.MenuItemDisplays,
-                            "action" => providerDynamic.MenuItemActions,
-                            "output" => providerDynamic.MenuItemOutputs,
-                            _ => throw new InvalidOperationException()
-                        };
+                            dynamic items = tryType switch
+                            {
+                                "display" => providerDynamic.MenuItemDisplays,
+                                "action" => providerDynamic.MenuItemActions,
+                                "output" => providerDynamic.MenuItemOutputs,
+                                _ => throw new InvalidOperationException()
+                            };
 
-                        dynamic axObj = items.Read(name);
-                        if (axObj == null) continue;
+                            dynamic axObj = items.Read(name);
+                            if (axObj == null) continue;
 
-                        string? model = null;
-                        try { var mi = items.GetModelInfo(name); if (mi?.Count > 0) model = ((IEnumerable<dynamic>)mi).First().Name; } catch { }
+                            string? model = null;
+                            try { var mi = items.GetModelInfo(name); if (mi?.Count > 0) model = ((IEnumerable<dynamic>)mi).First().Name; } catch { }
 
-                        return new
-                        {
-                            name = (string)axObj.Name,
-                            menuItemType = tryType,
-                            label = Safe(() => (string)axObj.Label),
-                            helpText = Safe(() => (string)axObj.HelpText),
-                            objectType = Safe(() => (string)axObj.ObjectType.ToString()),
-                            @object = Safe(() => (string)axObj.Object),
-                            openMode = Safe(() => (string)axObj.OpenMode.ToString()),
-                            linkedPermissionType = Safe(() => (string)axObj.LinkedPermissionType.ToString()),
-                            linkedPermissionObject = Safe(() => (string)axObj.LinkedPermissionObject),
-                            model,
-                            _source = "C# bridge (IMetadataProvider)"
-                        };
+                            return new
+                            {
+                                name = (string)axObj.Name,
+                                menuItemType = tryType,
+                                label = Safe(() => (string)axObj.Label),
+                                helpText = Safe(() => (string)axObj.HelpText),
+                                objectType = Safe(() => (string)axObj.ObjectType.ToString()),
+                                @object = Safe(() => (string)axObj.Object),
+                                openMode = Safe(() => (string)axObj.OpenMode.ToString()),
+                                linkedPermissionType = Safe(() => (string)axObj.LinkedPermissionType.ToString()),
+                                linkedPermissionObject = Safe(() => (string)axObj.LinkedPermissionObject),
+                                model,
+                                _source = "C# bridge (IMetadataProvider)"
+                            };
+                        }
+                        catch { }
                     }
-                    catch { }
+                    // not found in this provider — try the next one
                 }
                 return null;
             }
@@ -1434,44 +1532,57 @@ namespace D365MetadataBridge.Services
             {
                 var prefix = $"{baseTableName}.";
                 var extensions = new List<object>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                var allExtKeys = _provider.TableExtensions.GetPrimaryKeys();
-                foreach (var extName in allExtKeys)
+                void CollectExtensions(IMetadataProvider prov)
                 {
-                    if (!extName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
-
                     try
                     {
-                        var ext = _provider.TableExtensions.Read(extName);
-                        if (ext == null) continue;
-
-                        string? model = null;
-                        try { var mi = _provider.TableExtensions.GetModelInfo(extName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
-
-                        var addedFields = new List<string>();
-                        try { foreach (var f in ext.Fields) addedFields.Add(f.Name); } catch { }
-
-                        var addedIndexes = new List<string>();
-                        try { foreach (var i in ext.Indexes) addedIndexes.Add(i.Name); } catch { }
-
-                        var addedFieldGroups = new List<string>();
-                        try { foreach (var g in ext.FieldGroups) addedFieldGroups.Add(g.Name); } catch { }
-
-                        var addedRelations = new List<string>();
-                        try { foreach (var r in ext.Relations) addedRelations.Add(r.Name); } catch { }
-
-                        extensions.Add(new
+                        var allExtKeys = prov.TableExtensions.GetPrimaryKeys();
+                        foreach (var extName in allExtKeys)
                         {
-                            extensionName = extName,
-                            model,
-                            addedFields,
-                            addedIndexes,
-                            addedFieldGroups,
-                            addedRelations,
-                        });
+                            if (!extName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                            if (!seen.Add(extName)) continue; // already collected from primary
+
+                            try
+                            {
+                                var ext = prov.TableExtensions.Read(extName);
+                                if (ext == null) continue;
+
+                                string? model = null;
+                                try { var mi = prov.TableExtensions.GetModelInfo(extName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+
+                                var addedFields = new List<string>();
+                                try { foreach (var f in ext.Fields) addedFields.Add(f.Name); } catch { }
+
+                                var addedIndexes = new List<string>();
+                                try { foreach (var i in ext.Indexes) addedIndexes.Add(i.Name); } catch { }
+
+                                var addedFieldGroups = new List<string>();
+                                try { foreach (var g in ext.FieldGroups) addedFieldGroups.Add(g.Name); } catch { }
+
+                                var addedRelations = new List<string>();
+                                try { foreach (var r in ext.Relations) addedRelations.Add(r.Name); } catch { }
+
+                                extensions.Add(new
+                                {
+                                    extensionName = extName,
+                                    model,
+                                    addedFields,
+                                    addedIndexes,
+                                    addedFieldGroups,
+                                    addedRelations,
+                                });
+                            }
+                            catch { }
+                        }
                     }
                     catch { }
                 }
+
+                // Collect from primary provider first, then reference provider (UDE fallback)
+                CollectExtensions(_provider);
+                if (_referenceProvider != null) CollectExtensions(_referenceProvider);
 
                 return new
                 {
@@ -1501,10 +1612,11 @@ namespace D365MetadataBridge.Services
         {
             try
             {
-                // Try as class first
-                if (_provider.Classes.Exists(symbolName))
+                // Try as class first (primary then reference provider)
+                var classProv = PickProvider(p => p.Classes.Exists(symbolName));
+                if (classProv != null)
                 {
-                    var cls = _provider.Classes.Read(symbolName);
+                    var cls = classProv.Classes.Read(symbolName);
                     if (cls == null) return null;
 
                     var methods = new List<object>();
@@ -1538,7 +1650,7 @@ namespace D365MetadataBridge.Services
                     catch { }
 
                     string? model = null;
-                    try { var mi = _provider.Classes.GetModelInfo(symbolName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                    try { var mi = classProv.Classes.GetModelInfo(symbolName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
 
                     return new
                     {
@@ -1550,10 +1662,11 @@ namespace D365MetadataBridge.Services
                     };
                 }
 
-                // Try as table
-                if (_provider.Tables.Exists(symbolName))
+                // Try as table (primary then reference provider)
+                var tableProv2 = PickProvider(p => p.Tables.Exists(symbolName));
+                if (tableProv2 != null)
                 {
-                    var tbl = _provider.Tables.Read(symbolName);
+                    var tbl = tableProv2.Tables.Read(symbolName);
                     if (tbl == null) return null;
 
                     var members = new List<object>();
@@ -1561,7 +1674,7 @@ namespace D365MetadataBridge.Services
                     try { foreach (var m in tbl.Methods) members.Add(new { name = m.Name, signature = (string?)null, kind = "method" }); } catch { }
 
                     string? model = null;
-                    try { var mi = _provider.Tables.GetModelInfo(symbolName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
+                    try { var mi = tableProv2.Tables.GetModelInfo(symbolName); if (mi?.Count > 0) model = mi.First().Name; } catch { }
 
                     return new
                     {
@@ -1584,18 +1697,27 @@ namespace D365MetadataBridge.Services
 
         public object ListObjects(string type)
         {
-            IList<string> keys = type.ToLowerInvariant() switch
+            IList<string> GetKeys(IMetadataProvider prov) => type.ToLowerInvariant() switch
             {
-                "table" => _provider.Tables.GetPrimaryKeys(),
-                "class" => _provider.Classes.GetPrimaryKeys(),
-                "enum" => _provider.Enums.GetPrimaryKeys(),
-                "edt" => _provider.Edts.GetPrimaryKeys(),
-                "form" => _provider.Forms.GetPrimaryKeys(),
-                "view" => _provider.Views.GetPrimaryKeys(),
-                "query" => _provider.Queries.GetPrimaryKeys(),
-                "dataentity" => _provider.DataEntityViews.GetPrimaryKeys(),
+                "table" => prov.Tables.GetPrimaryKeys(),
+                "class" => prov.Classes.GetPrimaryKeys(),
+                "enum" => prov.Enums.GetPrimaryKeys(),
+                "edt" => prov.Edts.GetPrimaryKeys(),
+                "form" => prov.Forms.GetPrimaryKeys(),
+                "view" => prov.Views.GetPrimaryKeys(),
+                "query" => prov.Queries.GetPrimaryKeys(),
+                "dataentity" => prov.DataEntityViews.GetPrimaryKeys(),
                 _ => new List<string>()
             };
+
+            // Merge keys from both providers (deduplicated)
+            var allKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try { foreach (var k in GetKeys(_provider)) allKeys.Add(k); } catch { }
+            if (_referenceProvider != null)
+            {
+                try { foreach (var k in GetKeys(_referenceProvider)) allKeys.Add(k); } catch { }
+            }
+            var keys = allKeys.OrderBy(k => k).ToList();
             return new { type, count = keys.Count, names = keys };
         }
 

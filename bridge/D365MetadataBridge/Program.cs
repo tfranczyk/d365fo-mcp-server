@@ -30,6 +30,7 @@ namespace D365MetadataBridge
     static class Program
     {
         private static string _packagesPath = @"K:\AosService\PackagesLocalDirectory";
+        private static string? _referencePackagesPath = null; // UDE: Microsoft FrameworkDirectory packages path
         private static string? _binPath = null; // Explicit bin path (UDE: microsoftPackagesPath/bin)
         private static string _xrefServer = "localhost";
         private static string _xrefDatabase = "DYNAMICSXREFDB";
@@ -45,6 +46,9 @@ namespace D365MetadataBridge
                 {
                     case "--packages-path" when i + 1 < args.Length:
                         _packagesPath = args[++i];
+                        break;
+                    case "--reference-packages-path" when i + 1 < args.Length:
+                        _referencePackagesPath = args[++i];
                         break;
                     case "--bin-path" when i + 1 < args.Length:
                         _binPath = args[++i];
@@ -150,6 +154,7 @@ namespace D365MetadataBridge
                     version = "1.0.0",
                     status = "ready",
                     packagesPath = _packagesPath,
+                    referencePackagesPath = _referencePackagesPath,
                     metadataAvailable = metadataService != null,
                     xrefAvailable = xrefService != null
                 })
@@ -168,7 +173,9 @@ namespace D365MetadataBridge
             try
             {
                 Log.WriteLine($"[INFO] Initializing MetadataProvider from: {_packagesPath}");
-                var svc = new Services.MetadataReadService(_packagesPath);
+                if (_referencePackagesPath != null)
+                    Log.WriteLine($"[INFO] Reference packages path (UDE): {_referencePackagesPath}");
+                var svc = new Services.MetadataReadService(_packagesPath, _referencePackagesPath);
                 Log.WriteLine("[INFO] MetadataProvider initialized successfully");
                 return svc;
             }
@@ -338,12 +345,15 @@ Usage:
   D365MetadataBridge.exe [options]
 
 Options:
-  --packages-path <path>   Path to PackagesLocalDirectory (default: K:\AosService\PackagesLocalDirectory)
-  --bin-path <path>        Explicit DLL directory (UDE: microsoftPackagesPath\bin). If omitted, uses {packages-path}\bin.
-  --xref-server <server>   SQL Server for cross-reference DB (default: localhost)
-  --xref-database <db>     Cross-reference database name (default: DYNAMICSXREFDB)
-  --log-file <path>        Write all diagnostic logs to this file (append mode)
-  --help                   Show this help
+  --packages-path <path>            Path to primary PackagesLocalDirectory (default: K:\AosService\PackagesLocalDirectory)
+  --reference-packages-path <path>  UDE: secondary packages path (Microsoft FrameworkDirectory). Objects not found in
+                                    the primary path are looked up here, enabling resolution of both custom and
+                                    Microsoft-shipped metadata in UDE environments.
+  --bin-path <path>                 Explicit DLL directory (UDE: microsoftPackagesPath\bin). If omitted, uses {packages-path}\bin.
+  --xref-server <server>            SQL Server for cross-reference DB (default: localhost)
+  --xref-database <db>              Cross-reference database name (default: DYNAMICSXREFDB)
+  --log-file <path>                 Write all diagnostic logs to this file (append mode)
+  --help                            Show this help
 
 Protocol:
   Send JSON requests as single lines to stdin:

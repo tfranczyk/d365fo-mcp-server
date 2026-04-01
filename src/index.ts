@@ -354,6 +354,7 @@ async function initializeBridge(targetContext: import('./types/context.js').XppS
     const packagesPath = configMgr.getPackagePath() ?? undefined;
 
     let binPath: string | undefined;
+    let referencePackagesPath: string | undefined;
     if (devEnvType === 'ude') {
       const msPath = await configMgr.getMicrosoftPackagesPath();
       if (msPath) {
@@ -361,6 +362,9 @@ async function initializeBridge(targetContext: import('./types/context.js').XppS
         const { join } = await import('path');
         const candidate = join(msPath, 'bin');
         if (existsSync(candidate)) binPath = candidate;
+        // Pass Microsoft packages as reference provider so both custom and
+        // Microsoft-shipped objects (forms, tables, classes, etc.) are resolvable.
+        referencePackagesPath = msPath;
       }
     }
 
@@ -368,10 +372,11 @@ async function initializeBridge(targetContext: import('./types/context.js').XppS
     const xrefServer = await configMgr.getXrefDbServer() ?? undefined;
     const xrefDatabase = await configMgr.getXrefDbName() ?? undefined;
 
-    console.log(`[Bridge] Attempting connection: packagesPath=${packagesPath ?? 'not set'}, binPath=${binPath ?? 'auto'}, devEnvType=${devEnvType}`);
+    console.log(`[Bridge] Attempting connection: packagesPath=${packagesPath ?? 'not set'}, referencePackagesPath=${referencePackagesPath ?? 'none'}, binPath=${binPath ?? 'auto'}, devEnvType=${devEnvType}`);
 
     const bridge = await createBridgeClient({
       packagesPath,
+      referencePackagesPath,
       binPath,
       xrefServer,
       xrefDatabase,

@@ -70,6 +70,14 @@ export interface BridgeClientOptions {
   /** K:\AosService\PackagesLocalDirectory */
   packagesPath: string;
   /**
+   * Optional secondary packages path.
+   * UDE: Microsoft FrameworkDirectory (e.g. %LOCALAPPDATA%\Microsoft\Dynamics365\{ver}\PackagesLocalDirectory).
+   * When provided the bridge initialises a second DiskProvider and transparently falls back to it
+   * for any object not found in the primary path — so both custom and Microsoft-shipped metadata
+   * resolve correctly without having to choose one path over the other.
+   */
+  referencePackagesPath?: string;
+  /**
    * Explicit path to the D365FO bin directory containing Microsoft.Dynamics.*.dll.
    * Traditional: omit — defaults to {packagesPath}/bin.
    * UDE: set to microsoftPackagesPath/bin (the FrameworkDirectory bin folder).
@@ -138,6 +146,9 @@ export class BridgeClient extends EventEmitter {
     const args = [
       '--packages-path', this.options.packagesPath,
     ];
+    if (this.options.referencePackagesPath) {
+      args.push('--reference-packages-path', this.options.referencePackagesPath);
+    }
     if (this.options.binPath) {
       args.push('--bin-path', this.options.binPath);
     }
@@ -681,6 +692,7 @@ export class BridgeClient extends EventEmitter {
  */
 export async function createBridgeClient(options: {
   packagesPath?: string;
+  referencePackagesPath?: string;
   binPath?: string;
   bridgeExePath?: string;
   xrefServer?: string;

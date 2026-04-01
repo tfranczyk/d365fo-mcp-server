@@ -102,12 +102,30 @@ export async function getFormInfoTool(request: CallToolRequest, context: XppServ
     const bridgeResult = await tryBridgeForm(context.bridge, formName);
     if (bridgeResult) return bridgeResult;
 
+    // Determine why the bridge returned nothing to give an actionable error message.
+    let bridgeNote: string;
+    if (!context.bridge?.isReady) {
+      bridgeNote =
+        `The C# bridge is not connected. Ensure the bridge exe is built and D365FO metadata ` +
+        `is accessible. Check .mcp.json → context.packagePath (and context.microsoftPackagesPath ` +
+        `for UDE environments).`;
+    } else if (!context.bridge.metadataAvailable) {
+      bridgeNote =
+        `The C# bridge is connected but the metadata provider failed to initialize. ` +
+        `Check the bridge log for details — the packages path may be incorrect or the ` +
+        `D365FO bin directory may be missing.`;
+    } else {
+      bridgeNote =
+        `The bridge is connected and metadata is available, but form "${formName}" was not found ` +
+        `in either the primary or reference packages path. Verify the form name spelling or ` +
+        `pass the explicit filePath parameter:\n` +
+        `  get_form_info(formName="${formName}", filePath="<absolute path to .xml>")`;
+    }
+
     return {
       content: [{
         type: 'text',
-        text: `Form "${formName}" not found. Bridge returned no data — ensure the form exists in D365FO metadata.\n\n` +
-          `If this is a newly-created form, pass the explicit filePath parameter:\n` +
-          `  get_form_info(formName="${formName}", filePath="<absolute path to .xml>")`,
+        text: `Form "${formName}" not found.\n\n${bridgeNote}`,
       }],
       isError: true,
     };
