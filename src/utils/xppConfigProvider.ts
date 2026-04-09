@@ -130,6 +130,18 @@ export class XppConfigProvider {
       ) || null;
     }
 
+    // Warn when XPP_CONFIG_NAME is not set and multiple configs are present to prevent
+    // unpredictable auto-selection in multi-instance setups (see issue #441).
+    if (configs.length > 1) {
+      const names = configs.map(c => c.fullFilename).join(', ');
+      console.warn(
+        `[XppConfigProvider] XPP_CONFIG_NAME is not set and ${configs.length} configs were found ` +
+        `(${names}). Auto-selecting the newest: "${configs[0].fullFilename}". ` +
+        `Set XPP_CONFIG_NAME in your .env file to pin a specific config and avoid unpredictable ` +
+        `behaviour when running multiple server instances.`,
+      );
+    }
+
     // Auto-select newest (already sorted by mtime desc)
     return configs[0];
   }
