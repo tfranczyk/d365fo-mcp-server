@@ -19,7 +19,11 @@ import { getConfigManager, fallbackPackagePath } from './configManager.js';
 
 // Resolve path relative to this file, not to process.cwd()
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXTRACTED_METADATA_BASE = path.resolve(__dirname, '../../extracted-metadata');
+// METADATA_PATH env var allows each server instance to point to its own extracted-metadata
+// folder when running multiple instances from a single source directory.
+const EXTRACTED_METADATA_BASE = process.env.METADATA_PATH
+  ? path.resolve(process.env.METADATA_PATH)
+  : path.resolve(__dirname, '../../extracted-metadata');
 const METADATA_BASE = path.resolve(__dirname, '../../metadata');
 
 export type ExtractedObjectType = 'classes' | 'enums' | 'edts' | 'tables' | 'views';

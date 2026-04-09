@@ -22,7 +22,7 @@
  *           Upload final xpp-metadata.db to Blob Storage
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import * as fsSync from 'fs';
 import { XppSymbolIndex } from '../src/metadata/symbolIndex.js';
 import { indexAllLabels } from '../src/metadata/labelParser.js';
@@ -32,6 +32,10 @@ import * as path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Support ENV_FILE override for multi-instance setups
+// set ENV_FILE=.env.alpha && npm run build-fts
+dotenv.config({ path: process.env.ENV_FILE ? path.resolve(process.env.ENV_FILE) : undefined });
 
 const OUTPUT_DB     = process.env.DB_PATH       || './data/xpp-metadata.db';
 const OUTPUT_LABELS_DB = process.env.LABELS_DB_PATH || './data/xpp-metadata-labels.db';

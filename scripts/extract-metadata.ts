@@ -3,7 +3,7 @@
  * Extracts X++ metadata from D365 F&O PackagesLocalDirectory
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -14,6 +14,10 @@ import { XppConfigProvider } from '../src/utils/xppConfigProvider.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Support ENV_FILE override for multi-instance setups
+// set ENV_FILE=.env.alpha && npm run extract-metadata
+dotenv.config({ path: process.env.ENV_FILE ? path.resolve(process.env.ENV_FILE) : undefined });
 
 const PACKAGES_PATH = process.env.PACKAGES_PATH || 'C:\\AOSService\\PackagesLocalDirectory';
 const OUTPUT_PATH = process.env.METADATA_PATH || './extracted-metadata';
