@@ -997,12 +997,12 @@ graph LR
 ### Current Capacity
 
 - **Storage:** ~2–3 GB symbols database (without/with UnitTest models) + ~500 MB labels database (4 languages) = ~2.5–3.5 GB total
-- **Memory:** 1.75GB (P0v3)\n ~800MB used
+- **Memory:** 1.75GB (P0v3) - ~800MB used
 - **Throughput:** 500 req/15min per IP (configurable)
 - **Latency:** 
- \n Cache hit: <10ms
- \n Cache miss: 50-200ms
- \n Cold start: 15-30s (database download)
+ -  Cache hit: <10ms
+ -  Cache miss: 50-200ms
+ -  Cold start: 15-30s (database download)
 
 ---
 
