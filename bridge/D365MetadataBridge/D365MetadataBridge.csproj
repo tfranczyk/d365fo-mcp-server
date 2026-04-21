@@ -36,6 +36,7 @@
   <PropertyGroup>
     <D365BinPath Condition="'$(D365BinPath)' == '' And Exists('K:\AosService\PackagesLocalDirectory\bin')">K:\AosService\PackagesLocalDirectory\bin</D365BinPath>
     <D365BinPath Condition="'$(D365BinPath)' == '' And Exists('C:\AosService\PackagesLocalDirectory\bin')">C:\AosService\PackagesLocalDirectory\bin</D365BinPath>
+    <D365BinPath Condition="'$(D365BinPath)' == '' And Exists('C:\AosService\PackagesLocalDirectory\bin')">J:\AosService\PackagesLocalDirectory\bin</D365BinPath>
   </PropertyGroup>
 
   <!-- NuGet packages -->
