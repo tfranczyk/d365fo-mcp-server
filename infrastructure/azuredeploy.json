@@ -51,7 +51,7 @@
     },
     "labelLanguages": {
       "type": "string",
-      "defaultValue": "en-US,cs,sk,de",
+      "defaultValue": "en-US,pl",
       "metadata": {
         "description": "Comma-separated label languages to index. Each language adds ~125 MB. Examples: en-US,cs,de  or  en-US"
       }
