@@ -422,7 +422,7 @@ graph TD
     CACHE_CHECK -->|No| FTS_QUERY[FTS5 Full-Text Search]
     
     FTS_QUERY --> RESULTS[Raw Symbol Results]
-    RESULTS --> FORMAT[Format Results\n TYPE: Name\n Signature]
+    RESULTS --> FORMAT[Format Results - TYPE: Name - Signature]
     FORMAT --> CACHE_STORE[Store in Cache\n TTL: 1 hour]
     CACHE_STORE --> RETURN([Return Results])
     CACHE_RETURN --> RETURN
@@ -731,10 +731,10 @@ erDiagram
         text name "FTS5 indexed"
         text type "FTS5 indexed"
         text model "FTS5 indexed"
-        text description "FTS5 indexed\n Enhanced"
-        text tags "FTS5 indexed\n Enhanced"
-        text sourceSnippet "FTS5 indexed\n Enhanced"
-        text inlineComments "FTS5 indexed\n Enhanced"
+        text description "FTS5 indexed - Enhanced"
+        text tags "FTS5 indexed - Enhanced"
+        text sourceSnippet "FTS5 indexed - Enhanced"
+        text inlineComments "FTS5 indexed - Enhanced"
     }
     
     SYMBOLS ||--|| SYMBOLS_FTS : "mirrored for FTS5"
@@ -1102,12 +1102,12 @@ graph TB
 
 This architecture provides:
 
-✅ **High Performance**\n FTS5 full-text search with Redis caching  
-✅ **Live Metadata**\n C# bridge provides always-fresh data on Windows D365FO VMs (see [BRIDGE.md](BRIDGE.md))  
-✅ **Scalability**\n Stateless design, horizontal scaling ready  
-✅ **Reliability**\n Error handling, rate limiting, health checks  
-✅ **Security**\n API Key auth, HTTPS, rate limiting  
-✅ **Maintainability**\n TypeScript, comprehensive tests, CI/CD  
-✅ **Cost-Effective**\n Serverless Azure App Service, efficient caching  
+✅ **High Performance** - FTS5 full-text search with Redis caching  
+✅ **Live Metadata** - C# bridge provides always-fresh data on Windows D365FO VMs (see [BRIDGE.md](BRIDGE.md))  
+✅ **Scalability** - Stateless design, horizontal scaling ready  
+✅ **Reliability** - Error handling, rate limiting, health checks  
+✅ **Security** - API Key auth, HTTPS, rate limiting  
+✅ **Maintainability** - TypeScript, comprehensive tests, CI/CD  
+✅ **Cost-Effective** - Serverless Azure App Service, efficient caching  
 
 The modular design allows for easy extension and adaptation to different D365 F&O environments while maintaining compatibility with the MCP protocol standard.
