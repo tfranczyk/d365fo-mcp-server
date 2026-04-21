@@ -87,22 +87,15 @@ const PORT = parseInt(process.env.PORT || '8080');
 // Derive server root from this file's location so paths are absolute
 // regardless of process.cwd() — critical when VS Code launches this as stdio subprocess.
 const __serverDir = dirname(fileURLToPath(import.meta.url));
-const __envDir = loadedEnvPath ? dirname(loadedEnvPath) : undefined;
-function resolveConfiguredPath(value: string | undefined, fallbackPath: string): string {
-  if (!value) {
-    return resolve(__serverDir, fallbackPath);
-  }
-  if (isAbsolute(value)) {
-    return value;
-  }
-  if (__envDir) {
-    return resolve(__envDir, value);
-  }
-  return resolve(value);
-}
-const DB_PATH = resolveConfiguredPath(process.env.DB_PATH, '../data/xpp-metadata.db');
-const LABELS_DB_PATH = resolveConfiguredPath(process.env.LABELS_DB_PATH, '../data/xpp-metadata-labels.db');
-const METADATA_PATH = resolveConfiguredPath(process.env.METADATA_PATH, '../metadata');
+const DB_PATH = process.env.DB_PATH
+  ? resolve(process.env.DB_PATH)
+  : resolve(__serverDir, '../data/xpp-metadata.db');
+const LABELS_DB_PATH = process.env.LABELS_DB_PATH
+  ? resolve(process.env.LABELS_DB_PATH)
+  : resolve(__serverDir, '../data/xpp-metadata-labels.db');
+const METADATA_PATH = process.env.METADATA_PATH
+  ? resolve(process.env.METADATA_PATH)
+  : resolve(__serverDir, '../metadata');
 
 // Detect if running in stdio mode (launched by MCP client as subprocess).
 // Primary signal: stdin is NOT a TTY — in Node.js isTTY is `true` for terminals

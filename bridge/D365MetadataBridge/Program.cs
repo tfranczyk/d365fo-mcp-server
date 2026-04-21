@@ -29,7 +29,7 @@ namespace D365MetadataBridge
     /// </summary>
     static class Program
     {
-        private static string _packagesPath = @"J:\AosService\PackagesLocalDirectory";
+        private static string _packagesPath = @"C:\AosService\PackagesLocalDirectory";
         private static string? _referencePackagesPath = null; // UDE: Microsoft FrameworkDirectory packages path
         private static string? _binPath = null; // Explicit bin path (UDE: microsoftPackagesPath/bin)
         private static string _xrefServer = "localhost";
