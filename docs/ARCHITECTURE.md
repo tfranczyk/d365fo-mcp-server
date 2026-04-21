@@ -16,7 +16,7 @@ This document provides visual diagrams and detailed explanations of the D365 F&O
 
 ## High-Level Architecture
 
-````mermaid
+```mermaid
 graph TB
     subgraph "Client Layer"
         VS[Visual Studio 2022 17.14+ GitHub Copilot Agent Mode]
@@ -83,7 +83,7 @@ graph TB
 
 ## Request Flow
 
-````mermaid
+```mermaid
 sequenceDiagram
     participant IDE as Visual Studio 2022 / 2026
     participant HTTP as HTTP Transport
@@ -142,7 +142,7 @@ sequenceDiagram
 
 ## Component Architecture
 
-````mermaid
+```mermaid
 graph LR
     subgraph "Entry Point"
         INDEX[index.ts - Main Entry]
@@ -377,7 +377,7 @@ graph LR
 
 ### 1. Startup Flow
 
-````mermaid
+```mermaid
 graph TD
     START([Server Startup]) --> ENV[Load .env Config]
     ENV --> CACHE_INIT[Initialize Redis Cache - Optional]
@@ -413,7 +413,7 @@ graph TD
 
 ### 2. Search Query Flow
 
-````mermaid
+```mermaid
 graph TD
     QUERY([User Search Query]) --> CACHE_KEY[Generate Cache Key - search:query:limit]
     CACHE_KEY --> CACHE_CHECK{Cache Hit?}
@@ -435,7 +435,7 @@ graph TD
 
 ### 3. Class Info Query Flow
 
-````mermaid
+```mermaid
 graph TD
     CLASS_REQ([Get Class Info]) --> BRIDGE_TRY{Bridge Available?}
     
@@ -483,7 +483,7 @@ graph TD
 
 ### Process Lifecycle
 
-````mermaid
+```mermaid
 sequenceDiagram
     participant MCP as MCP Server (Node.js)
     participant Bridge as D365MetadataBridge.exe (.NET 4.8)
@@ -535,7 +535,7 @@ can safely create/modify D365FO objects (correct XML encoding, AOT path, `.rnrpr
 
 ### C# Components
 
-````mermaid
+```mermaid
 graph TB
     subgraph "D365MetadataBridge.exe"
         MAIN[Program.cs — stdin/stdout JSON-RPC loop]
@@ -624,7 +624,7 @@ that the bridge handles internally:
 
 ### Index Lifecycle & Cache Invalidation
 
-````mermaid
+```mermaid
 sequenceDiagram
     participant Tool as MCP Tool Handler
     participant Bridge as C# Bridge
@@ -658,7 +658,7 @@ sequenceDiagram
 
 ## Deployment Architecture
 
-````mermaid
+```mermaid
 graph TB
     subgraph "GitHub"
         REPO[GitHub Repository - main branch]
@@ -705,7 +705,7 @@ graph TB
 
 ### Symbols Database
 
-````mermaid
+```mermaid
 erDiagram
     SYMBOLS {
         integer id PK
@@ -742,7 +742,7 @@ erDiagram
 
 ### Labels Database
 
-````mermaid
+```mermaid
 erDiagram
     LABELS {
         integer id PK
@@ -789,7 +789,7 @@ for the full schema.
 
 ## MCP Protocol Endpoints
 
-````mermaid
+```mermaid
 graph LR
     subgraph "MCP Protocol Methods"
         INIT[initialize - Server Capabilities]
@@ -848,7 +848,7 @@ graph TD
 
 ## Performance Optimizations
 
-````mermaid
+```mermaid
 graph TD
     subgraph "Caching Strategy"
         L1[Request] --> L2{Redis Cache}
@@ -894,7 +894,7 @@ graph TD
 
 ## Security Architecture
 
-````mermaid
+```mermaid
 graph TD
     subgraph "Authentication"
         A1[Client Request] --> A2[API Key / Bearer Token]
@@ -925,7 +925,7 @@ graph TD
 
 ## Error Handling Flow
 
-````mermaid
+```mermaid
 graph TD
     ERR([Error Occurs]) --> TYPE{Error Type?}
     
@@ -969,7 +969,7 @@ graph TD
 
 ## Scalability Considerations
 
-````mermaid
+```mermaid
 graph LR
     subgraph "Vertical Scaling"
         V1[P0v3: 1 vCPU, 1.75GB] -.-> V2[P1v3: 2 vCPU, 3.5GB]
@@ -1008,7 +1008,7 @@ graph LR
 
 ## Testing Architecture
 
-````mermaid
+```mermaid
 graph TB
     subgraph "Test Pyramid"
         UNIT[Unit Tests - Tools, Utils, Metadata Parser]
@@ -1046,7 +1046,7 @@ graph TB
 
 ## Technology Stack
 
-````mermaid
+```mermaid
 graph TB
     subgraph "Runtime"
         NODE[Node.js 24 LTS]
