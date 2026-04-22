@@ -96,7 +96,7 @@ App Service → Settings → Environment variables:
 | `BLOB_DATABASE_NAME` | `databases/xpp-metadata-latest.db` |
 | `DB_PATH` | `/tmp/xpp-metadata.db` |
 | `LABELS_DB_PATH` | `/tmp/xpp-metadata-labels.db` |
-| `LABEL_LANGUAGES` | `en-US,cs,de` (adjust) |
+| `LABEL_LANGUAGES` | `en-US,pl` (adjust) |
 | `MCP_SERVER_MODE` | `read-only` |
 | `NODE_ENV` | `production` |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` |
@@ -106,7 +106,7 @@ App Service → Settings → Environment variables:
 | `REDIS_URL` *(optional)* | Azure Managed Redis URL |
 | `REDIS_CLUSTER_MODE` *(optional)* | `true` for Enterprise/cluster tier |
 
-**Startup Command** (Settings → Configuration → General settings):
+**Startup Command** (Settings → Configuration → Stack settings):
 
 ```
 bash startup.sh
@@ -119,8 +119,8 @@ bash startup.sh
 # Part B — Azure DevOps wiring (for Azure side)
 
 ## B1. Service connections (Project Settings → Service connections)
-1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`.
-2. **GitHub** to the `d365fo-mcp-server` repo — `github.com_dynamics365ninja` (or adjust `endpoint:` in the YAMLs).
+1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG.
+2. **GitHub** to the `d365fo-mcp-server` repo — `github.com_tfranczyk` (or adjust `endpoint:` in the YAMLs).
 
 ## B2. Variable Group — `xpp-mcp-server-config`
 Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-server-config`.**

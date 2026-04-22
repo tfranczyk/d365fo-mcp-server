@@ -245,14 +245,10 @@ export const dbSyncTool = async (params: any, _context: any) => {
     const connStr = params.connectionString
       || 'Data Source=localhost;Initial Catalog=AxDB;Integrated Security=True';
 
-    let syncMode: string;
-    if (isPartial) {
-      syncMode = 'PartialList';
-    } else if (syncViews) {
-      syncMode = 'FullAllAndViews';
-    } else {
-      syncMode = 'FullAll';
-    }
+    // Valid SyncEngine.exe sync modes: FullAll, FullTables, FullViews, PartialList, PartialTables, PartialViews.
+    // FullAll already covers tables + views — there is no "FullAllAndViews".
+    // syncViews only changes behaviour in partial sync (adds -viewlist).
+    const syncMode: string = isPartial ? 'PartialList' : 'FullAll';
 
     const args: string[] = [
       `-syncmode=${syncMode}`,
@@ -276,7 +272,7 @@ export const dbSyncTool = async (params: any, _context: any) => {
     const timeoutMs = isPartial ? 15 * 60_000 : 60 * 60_000;
 
     const startTime = Date.now();
-    const { stdout, stderr } = await withOperationLock(
+    const { stdout, stderr, code } = await withOperationLock(
       'dbsync',  // single lock key — SyncEngine can't run in parallel on same DB
       () => runWithStreaming(syncEnginePath, args, {
         timeout: timeoutMs,
@@ -287,8 +283,13 @@ export const dbSyncTool = async (params: any, _context: any) => {
 
     const rawOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
     const output = truncateOutput(rawOutput);
-    const hasErrors = /\b(error|failed|exception)\b/i.test(rawOutput) &&
-      !/0 error/i.test(rawOutput);  // "0 errors" is success
+    // Detect failure via (a) non-zero exit code, (b) textual error markers.
+    // Regex is intentionally broad: catches 'Error', 'Exception' inside CamelCase
+    // tokens (e.g. ArgumentException, InvalidOperationException) and phrases like
+    // 'Invalid argument', 'Invalid sync mode', 'stack trace'. "0 errors" is success.
+    const errorMarker = /(error|failed|exception|invalid argument|invalid sync mode|stack trace| at [A-Z])/i.test(rawOutput)
+      && !/0 errors?/i.test(rawOutput);
+    const hasErrors = (code !== null && code !== 0) || errorMarker;
 
     const scopeDesc = isPartial
       ? `Partial sync — ${tableList.length} table(s): ${tableList.join(', ')}` +
@@ -296,14 +297,16 @@ export const dbSyncTool = async (params: any, _context: any) => {
         (syncViews ? ' + views' : '')
       : `Full sync — model: ${modelName}${syncViews ? ' (tables + views)' : ''}`;
 
+    const header = hasErrors ? '❌ DB Sync failed' : '✅ DB Sync completed';
+    const exitInfo = code !== null ? ` exit=${code}` : '';
     return {
       content: [{
         type: 'text',
-        text: (hasErrors ? '❌ DB Sync failed' : '✅ DB Sync completed') +
-          ` (${elapsedSec}s)` +
+        text: `${header} (${elapsedSec}s${exitInfo})` +
           `\n\n${scopeDesc}` +
           `\n\n${output || '(no output)'}`
-      }]
+      }],
+      isError: hasErrors,
     };
   } catch (error: any) {
     console.error('Error syncing DB:', error);
