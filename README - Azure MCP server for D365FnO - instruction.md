@@ -134,7 +134,9 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 
 ## B3. Import the 4 pipelines
-Pipelines → New Pipeline → select repo → **Existing Azure Pipelines YAML file** → pick:
+> At this moment it is recommended to have the `.azure-pipelines` folder content copied to your repo. It is assummed that your repo has this folder in its root directory.
+
+Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file** → pick:
 
 | Pipeline YAML | Purpose | Duration |
 |---|---|---|
