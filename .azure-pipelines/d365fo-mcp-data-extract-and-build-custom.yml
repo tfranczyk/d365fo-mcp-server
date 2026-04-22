@@ -32,8 +32,8 @@ resources:
   repositories:
     - repository: mcpServer
       type: github
-      endpoint: github.com_dynamics365ninja
-      name: dynamics365ninja/d365fo-mcp-server
+      endpoint: tfranczyk_d365fo-mcp-server
+      name: tfranczyk/d365fo-mcp-server
       ref: refs/heads/main
 
 variables:
@@ -47,16 +47,36 @@ variables:
   - name: LABELS_DB_PATH
     value: './database/xpp-metadata-labels.db'
   - name: PACKAGES_PATH
-    value: '$(Build.SourcesDirectory)/your/path/to/metadata' // Path to the metadata files from the Git repository
+    value: '$(Build.SourcesDirectory)/Metadata' // Path to the metadata files from the Git repository
   - name: MCP_SERVER_PATH
     value: '$(Pipeline.Workspace)/mcp-server'
 
 stages:
   # ============================================================================
-  # Single Stage: Process Metadata Based on Mode
+  # Stage 0: Manual approval gate
+  # Configured via Azure DevOps environment 'xpp-mcp-data-build' → Approvals and checks.
+  # Approver: tfranczyk@anegis.com
+  # ============================================================================
+  - stage: Approval
+    displayName: 'Manual approval'
+    jobs:
+      - deployment: WaitForApproval
+        displayName: 'Wait for approval'
+        environment: 'xpp-mcp-data-build'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo 'Approved — proceeding to metadata processing.'
+                  displayName: 'Approval granted'
+
+  # ============================================================================
+  # Stage 1: Process Metadata Based on Mode
   # ============================================================================
   - stage: ProcessMetadata
     displayName: 'Process Metadata'
+    dependsOn: Approval
+    condition: succeeded()
     jobs:
       - job: ProcessJob
         displayName: 'Extract, Build, and Upload'
