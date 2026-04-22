@@ -4,18 +4,7 @@
 # with the same Node.js version as the App Service runtime.
 # Ships pre-built node_modules so no compilation is needed on the server.
 
-trigger:
-  branches:
-    include:
-      - main
-  paths:
-    include:
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'startup.sh'
-      - 'tsconfig.json'
-      - '.azure-pipelines/d365fo-mcp-app-deploy.yml'
+trigger: none  # Manual execution only
 
 pool:
   vmImage: 'ubuntu-latest'
