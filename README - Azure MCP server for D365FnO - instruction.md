@@ -37,7 +37,7 @@ App Service              node dist/index.js --stdio
 - Azure subscription with rights to create Resource Group, App Service, Storage Account, (optional) Azure Managed Redis
 - Azure DevOps organisation + project (to run build + data pipelines)
 - GitHub account that can read this repository (for the ADO Service Connection to GitHub)
-- Azure Storage Explorer (for the one-off `PackagesLocalDirectory.zip` upload)
+- Azure Storage Explorer *(optional, only if you want the zip-based Azure platform pipeline path)*
 
 ## A1. Create Azure resources — ARM template (default path)
 Use the ARM template shipped in this repo: [infrastructure/azuredeploy.json](infrastructure/azuredeploy.json). It provisions the full Azure-side stack in one deployment (everything **except** Azure Managed Redis).
@@ -74,7 +74,7 @@ All names are derived from the Resource Group name (= `appName` in the template)
 |---|---|---|
 | Storage Account | `rgxppmcp` (hyphens stripped) | StorageV2, SKU from `storageSku` |
 | &nbsp;&nbsp;Blob Container | `xpp-metadata` | Built databases land here (`database/xpp-metadata.db` etc.) |
-| &nbsp;&nbsp;Blob Container | `packages` | Upload `PackagesLocalDirectory.zip` here (see B4) |
+| &nbsp;&nbsp;Blob Container | `packages` | Optional: upload `PackagesLocalDirectory.zip` here if you use the zip-based platform pipeline path |
 | App Service Plan | `rg-xpp-mcp-plan` | Linux, tier from `appServiceSku` |
 | App Service (Web App) | `rg-xpp-mcp` | Node 24 LTS, HTTPS-only, **system-assigned managed identity enabled**, startup command `bash startup.sh` |
 
@@ -133,8 +133,10 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
 | `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 
-## B3. Upload `PackagesLocalDirectory.zip` (prerequisite for the platform pipeline)
-Must be done **before** you run `d365fo-mcp-data-extract-and-build-platform` (see Part C, step 2). Re-upload only after a D365FO version upgrade or major hotfix rollup.
+## B3. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
+This is **not required** for the recommended flow in Part C, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
+
+Keep this zip-based path only if you intentionally want to run `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Re-upload only after a D365FO version upgrade or major hotfix rollup.
 
 ### B3.1. What the zip must contain
 The platform pipeline unpacks the archive with:
@@ -210,9 +212,9 @@ After import, the approval gates (configured in Part B, Approval environment) wi
 
 ---
 
-# Part C — First Azure-side run (order of pipelines)
+# Part C — First rollout (recommended order)
 
-Run them **in this exact order**. Each step depends on the previous one.
+Run these steps **in this exact order**. Each step depends on the previous one.
 
 ## C1. Run `d365fo-mcp-app-deploy`
 Deploys server code to App Service. The app boots in read-only mode but its database is empty until C2 finishes. Verify it at least serves `/health`:
@@ -223,21 +225,31 @@ GET https://<your-app>.azurewebsites.net/health
 
 Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
 
-> Why first? Because C2 and C3 call `AzureAppServiceManage@0 → Restart Azure App Service` at the end — there has to be *something* deployed to restart.
+> Why first? Because C3 auto-restarts the Azure App Service at the end, and C2 can also do so when you pass `-RestartAppService` — there has to be *something* deployed to restart.
 
-## C2. Upload `PackagesLocalDirectory.zip` (see B4) — then run `d365fo-mcp-data-extract-and-build-platform`
-**Do not start this pipeline until the blob is in place** (B4). The first job fails immediately otherwise with `BlobNotFound`.
+## C2. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
+Run this on a D365FO development box that can read the full `PackagesLocalDirectory` for the current application version.
 
-The pipeline:
-1. Downloads the zip from `packages` container.
-2. Unzips it into the agent's workspace.
-3. Runs `npm run extract-metadata` in `standard` mode → produces per-model XML under `./metadata/`.
-4. Uploads the extracted metadata to `xpp-metadata` container under `metadata/standard/…`.
-5. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`) including all configured label languages.
-6. Uploads both `.db` files to `xpp-metadata` container.
-7. Restarts the App Service so it pulls the new DB on cold start.
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-local.ps1 `
+  -RepoPath "C:\Repos\d365fo-mcp-server" `
+  -PackagesPath "K:\AosService\PackagesLocalDirectory" `
+  -StorageConnectionString "<AZURE_STORAGE_CONNECTION_STRING>" `
+  -BlobContainerName "xpp-metadata" `
+  -RestartAppService `
+  -AzureSubscription "<subscription-name-or-id>" `
+  -AzureResourceGroup "<resource-group>" `
+  -AzureAppServiceName "<app-service-name>"
+```
 
-Duration: 60–120 minutes — the Ubuntu agent is CPU-bound on XML parsing and label indexing. Go grab a coffee.
+The script:
+1. Installs dependencies if needed and builds the repo.
+2. Runs `npm run extract-metadata` in `standard` mode against your local `PackagesLocalDirectory`.
+3. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`).
+4. Uploads the standard metadata and databases to Azure Blob Storage.
+5. Optionally restarts the App Service so it pulls the new DB on cold start.
+
+Duration: 60-120 minutes depending on the VM and metadata volume. It is CPU-heavy, so plan for a long-running local job.
 
 ## C3. Run `d365fo-mcp-data-extract-and-build-custom`
 Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C2.
@@ -246,8 +258,8 @@ This pipeline does **not** use the `packages` container — it reads sources str
 
 After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
 
-## C4. Shortcut for later: `d365fo-mcp-data-platform-upgrade`
-This is C2 + C3 fused into one run. Use it only after a D365FO version upgrade or hotfix rollup when you already re-uploaded a fresh `PackagesLocalDirectory.zip`. Same prerequisite as C2 — the blob must be up-to-date first.
+## C4. Optional alternative: `d365fo-mcp-data-platform-upgrade`
+This is the zip-based Azure equivalent of C2 + C3 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip`.
 
 ---
 
@@ -384,7 +396,7 @@ If Copilot offers to edit `.xml` with a built-in editor instead of calling the l
 |---|---|---|
 | Server code change pushed to `main` | `d365fo-mcp-app-deploy` auto-runs | `git pull` + `npm install` + `npm run build` |
 | Your custom models changed | `d365fo-mcp-data-extract-and-build-custom` + restart App Service | — |
-| D365FO version upgrade / hotfix | Re-upload `PackagesLocalDirectory.zip`, run `d365fo-mcp-data-platform-upgrade`, restart App Service | Rebuild the C# bridge against the new `bin` folder |
+| D365FO version upgrade / hotfix | Run local `scripts/local/build-platform-metadata-local.ps1`, then `d365fo-mcp-data-extract-and-build-custom` | Rebuild the C# bridge against the new `bin` folder |
 | New developer joins | Nothing | Follow Part D + E |
 | Rotate API key | Update `API_KEY` app setting + restart | Update `X-Api-Key` in every dev's `.mcp.json` |
 
@@ -403,6 +415,5 @@ If Copilot offers to edit `.xml` with a built-in editor instead of calling the l
 **Local write-only companion:**
 - Copilot doesn't see local tools → `.mcp.json` path/quotes wrong, or Node not in Path. Check with `node -v` in the same terminal context VS Code runs under.
 - `modify_d365fo_file` errors "requires file system access" → you accidentally pointed it at Azure URL. Server name in tool call should match `d365fo-mcp-local`.
-- Changes made but not visible to Azure search → expected. Azure DB is rebuilt only by pipelines. Run `d365fo-mcp-data-extract-and-build-custom` after significant local changes if the team needs search to catch up.
+- Changes made but not visible to Azure search → expected. Azure DB is rebuilt only by the sync workflows (local platform build and/or Azure pipelines). Run `d365fo-mcp-data-extract-and-build-custom` after significant local changes if the team needs search to catch up.
 - Bridge build fails → wrong `D365BinPath`. Point it at the `bin` folder inside `PackagesLocalDirectory`.
-
