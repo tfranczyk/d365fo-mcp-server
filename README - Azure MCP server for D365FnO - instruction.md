@@ -171,26 +171,21 @@ On your D365FO VM:
 
 1. Stop AOS / DynamicsAxBatch services if they are running (avoids "file in use" during compression).
 
-2. Exclude unnecessary packages (UnitTest, DemoData, TestEssentials, Bundle) to reduce zip size and prevent hosted agent disk-space issues during extraction. Create the archive using 7-Zip with symlink dereferencing (the `-l` flag ensures symlink contents are included in the zip, not just the links):
+2. Exclude unnecessary packages (UnitTest, DemoData, TestEssentials, Bundle) to reduce zip size and prevent hosted agent disk-space issues during extraction. Zip directly from source (no staging) to avoid copying millions of files:
 
    ```powershell
-   # From any directory; adjust drive letters as needed
-   "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=1 -l C:\Temp\PackagesLocalDirectory.zip `
+   "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=1 C:\Temp\PackagesLocalDirectory.zip `
      K:\AosService\PackagesLocalDirectory `
-     -xr!*UnitTest* -xr!*TestEssentials* -xr!DemoDataSuite -xr!DemoDataWellKnownValues `
-     -xr!Bundle
+     -xr!*UnitTest* -xr!*TestEssentials* -xr!*DemoDataSuite* -xr!*DemoDataWellKnownValues* -xr!Bundle
    ```
    
    Parameters explained:
    - `-tzip` = create ZIP (not 7z)
-   - `-mx=1` = fastest compression (resulting zip is still several GB; faster upload than `-mx=7`)
-   - `-l` = **follow symlinks** — dereference and copy symlink contents into the zip (critical for D365FO `bin/` and assembly shortcuts)
-   - `-xr!*UnitTest*` = recursively exclude all folders matching `*UnitTest*` pattern
-   - `-xr!Bundle` = exclude Bundle and related packages
+   - `-mx=1` = fastest compression (resulting zip is still several GB; faster upload than heavier compression)
+   - `-xr!*UnitTest*` = recursively exclude all folders matching `*UnitTest*` pattern from the staged copy during zipping
+   - `-xr!` on large packages = excludes them from the archive (much faster than copying first)
    
-   > If you **want** UnitTest models, omit the `-xr!` flags but keep the `-l` flag. Just note the zip will be 20–40 GB larger.
-
-   > Shortcut if you have all standard packages: Use this command as-is. It excludes the big data/test suites (typically 15–30 GB) while keeping all functional models.
+   > If you **want** UnitTest models, omit the `-xr!` flags. Just note the zip will be much larger and the hosted agent is more likely to run out of disk during extraction.
 
 3. Upload the result via Azure Storage Explorer:
    - Open storage account → Blob Containers → `packages` → Upload
@@ -200,7 +195,7 @@ On your D365FO VM:
 ### B3.3. Quick self-check before running the pipeline
 In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
 
-## B4. Import the 4 pipelines
+## B4. Import the 3 pipelines
 > Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
 
 Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file** → pick each of:
@@ -208,7 +203,6 @@ Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Config
 | Pipeline YAML | Purpose | Duration |
 |---|---|---|
 | `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Auto-triggers on push to `main`. | ~5–10 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | Extracts standard metadata from the zip (B3) and builds DB. Requires approval gate. | ~60–120 min |
 | `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them. Requires approval gate. | ~15–30 min |
 | `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | Full D365 upgrade (standard + custom + labels in one run). Requires approval gate. | ~90–120 min |
 
@@ -412,6 +406,3 @@ If Copilot offers to edit `.xml` with a built-in editor instead of calling the l
 - Changes made but not visible to Azure search → expected. Azure DB is rebuilt only by pipelines. Run `d365fo-mcp-data-extract-and-build-custom` after significant local changes if the team needs search to catch up.
 - Bridge build fails → wrong `D365BinPath`. Point it at the `bin` folder inside `PackagesLocalDirectory`.
 
----
-
-> **Intentionally not executed by the assistant.** All Azure, ADO, VM and Copilot configuration steps are for you to perform manually.
