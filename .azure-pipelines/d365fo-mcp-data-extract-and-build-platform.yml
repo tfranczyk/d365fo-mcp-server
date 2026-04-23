@@ -116,11 +116,15 @@ stages:
           - script: |
               echo "Extracting $(PACKAGES_DIR_NAME).zip..."
               unzip -q $(PACKAGES_ZIP_PATH) -d $(Pipeline.Workspace)
-
+              
               echo "Extraction completed successfully"
               echo "Contents of extracted directory:"
               ls -la $(Pipeline.Workspace)/$(PACKAGES_DIR_NAME)
-            displayName: 'Extract $(PACKAGES_DIR_NAME).zip'
+              
+              echo "Deleting zip to free disk space..."
+              rm -f $(PACKAGES_ZIP_PATH)
+              df -h /
+            displayName: 'Extract $(PACKAGES_DIR_NAME).zip and clean up'
             condition: eq('${{ parameters.skipExtraction }}', false)
 
           # ========== Step 4: Extract Metadata ==========

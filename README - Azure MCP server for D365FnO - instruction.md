@@ -133,46 +133,127 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
 | `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 
-## B3. Import the 4 pipelines
-> At this moment it is recommended to have the `.azure-pipelines` folder content copied to your repo. It is assummed that your repo has this folder in its root directory.
+## B3. Upload `PackagesLocalDirectory.zip` (prerequisite for the platform pipeline)
+Must be done **before** you run `d365fo-mcp-data-extract-and-build-platform` (see Part C, step 2). Re-upload only after a D365FO version upgrade or major hotfix rollup.
 
-Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file** → pick:
+### B3.1. What the zip must contain
+The platform pipeline unpacks the archive with:
+
+```bash
+unzip -q PackagesLocalDirectory.zip -d $(Pipeline.Workspace)
+```
+
+and then expects the path `$(Pipeline.Workspace)/PackagesLocalDirectory/<ModelFolders>...`. That means **the archive must have a single top-level folder named exactly `PackagesLocalDirectory`**, and inside it the raw D365FO package folders (`ApplicationSuite`, `ApplicationFoundation`, `Currency`, `Directory`, …) with their standard AOT subtree (`Ax*`, `bin`, `Descriptor`, etc.). Plain file tree, not flattened, no extra wrapper folder.
+
+Correct layout inside the zip:
+
+```
+PackagesLocalDirectory/
+├── ApplicationSuite/
+│   ├── AxClass/
+│   ├── AxTable/
+│   └── ...
+├── ApplicationFoundation/
+├── Currency/
+├── Directory/
+├── bin/
+└── ... (all other standard packages)
+```
+
+Wrong (will fail the `ls -la $(Pipeline.Workspace)/PackagesLocalDirectory` sanity step):
+- Zip root contains the model folders directly (no `PackagesLocalDirectory/` wrapper).
+- Zip root contains one folder with a different name (e.g. `PackagesLocalDirectory-2026-04-22/`).
+
+> Even if you exclude UnitTest/DemoData, the remaining zip typically contains 350+ Microsoft standard models. Platform pipeline only processes these — custom models come later from Git source.
+
+### B3.2. Create and upload the zip
+On your D365FO VM:
+
+1. Stop AOS / DynamicsAxBatch services if they are running (avoids "file in use" during compression).
+
+2. Exclude unnecessary packages (UnitTest, DemoData, TestEssentials, Bundle) to reduce zip size and prevent hosted agent disk-space issues during extraction. Create the archive using 7-Zip with symlink dereferencing (the `-l` flag ensures symlink contents are included in the zip, not just the links):
+
+   ```powershell
+   # From any directory; adjust drive letters as needed
+   "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=1 -l C:\Temp\PackagesLocalDirectory.zip `
+     K:\AosService\PackagesLocalDirectory `
+     -xr!*UnitTest* -xr!*TestEssentials* -xr!DemoDataSuite -xr!DemoDataWellKnownValues `
+     -xr!Bundle
+   ```
+   
+   Parameters explained:
+   - `-tzip` = create ZIP (not 7z)
+   - `-mx=1` = fastest compression (resulting zip is still several GB; faster upload than `-mx=7`)
+   - `-l` = **follow symlinks** — dereference and copy symlink contents into the zip (critical for D365FO `bin/` and assembly shortcuts)
+   - `-xr!*UnitTest*` = recursively exclude all folders matching `*UnitTest*` pattern
+   - `-xr!Bundle` = exclude Bundle and related packages
+   
+   > If you **want** UnitTest models, omit the `-xr!` flags but keep the `-l` flag. Just note the zip will be 20–40 GB larger.
+
+   > Shortcut if you have all standard packages: Use this command as-is. It excludes the big data/test suites (typically 15–30 GB) while keeping all functional models.
+
+3. Upload the result via Azure Storage Explorer:
+   - Open storage account → Blob Containers → `packages` → Upload
+   - Choose `C:\Temp\PackagesLocalDirectory.zip`
+   - The blob name **must stay exactly `PackagesLocalDirectory.zip`** (that's what the pipeline downloads)
+
+### B3.3. Quick self-check before running the pipeline
+In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
+
+## B4. Import the 4 pipelines
+> Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
+
+Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file** → pick each of:
 
 | Pipeline YAML | Purpose | Duration |
 |---|---|---|
-| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Auto-triggers on push to `main`. | ~5 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Rebuilds metadata DB for your custom models only. | ~15–30 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | Rebuilds metadata DB from the uploaded platform zip. | ~60–120 min |
-| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | Full rebuild: standard + custom + labels. | ~90–120 min |
+| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Auto-triggers on push to `main`. | ~5–10 min |
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | Extracts standard metadata from the zip (B3) and builds DB. Requires approval gate. | ~60–120 min |
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them. Requires approval gate. | ~15–30 min |
+| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | Full D365 upgrade (standard + custom + labels in one run). Requires approval gate. | ~90–120 min |
 
-## B4. Upload `PackagesLocalDirectory.zip` (one-off per D365FO version)
-On your D365FO VM:
-
-1. Compress `K:\AosService\PackagesLocalDirectory` into a single zip.
-2. Upload it to the `packages` container as `PackagesLocalDirectory.zip` via Azure Storage Explorer.
-
-Re-upload only after a D365FO version upgrade or major hotfix rollup.
+After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
 
 ---
 
 # Part C — First Azure-side run (order of pipelines)
 
-1. `d365fo-mcp-app-deploy` → code to App Service. Check:
+Run them **in this exact order**. Each step depends on the previous one.
 
-   ```
-   GET https://<your-app>.azurewebsites.net/health
-   ```
-   Expected: `{"status":"ok","mode":"read-only", ...}` (tool count will reflect an empty DB until C2/C3 finish).
+## C1. Run `d365fo-mcp-app-deploy`
+Deploys server code to App Service. The app boots in read-only mode but its database is empty until C2 finishes. Verify it at least serves `/health`:
 
-2. `d365fo-mcp-data-extract-and-build-platform` → builds standard-models DB from the uploaded zip and publishes it to `xpp-metadata`.
+```
+GET https://<your-app>.azurewebsites.net/health
+```
 
-3. `d365fo-mcp-data-extract-and-build-custom` → layers your custom models on top.
+Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
 
-4. Restart the App Service once (Overview → Restart). On cold start it downloads the new DB into `/tmp`.
+> Why first? Because C2 and C3 call `AzureAppServiceManage@0 → Restart Azure App Service` at the end — there has to be *something* deployed to restart.
 
-5. Re-hit `/health` — tool count should match **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test).
+## C2. Upload `PackagesLocalDirectory.zip` (see B4) — then run `d365fo-mcp-data-extract-and-build-platform`
+**Do not start this pipeline until the blob is in place** (B4). The first job fails immediately otherwise with `BlobNotFound`.
 
-> Fast path after a D365FO upgrade: `d365fo-mcp-data-platform-upgrade` does C2 + C3 in one run.
+The pipeline:
+1. Downloads the zip from `packages` container.
+2. Unzips it into the agent's workspace.
+3. Runs `npm run extract-metadata` in `standard` mode → produces per-model XML under `./metadata/`.
+4. Uploads the extracted metadata to `xpp-metadata` container under `metadata/standard/…`.
+5. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`) including all configured label languages.
+6. Uploads both `.db` files to `xpp-metadata` container.
+7. Restarts the App Service so it pulls the new DB on cold start.
+
+Duration: 60–120 minutes — the Ubuntu agent is CPU-bound on XML parsing and label indexing. Go grab a coffee.
+
+## C3. Run `d365fo-mcp-data-extract-and-build-custom`
+Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C2.
+
+This pipeline does **not** use the `packages` container — it reads sources straight from the Git repo (`checkout: self`) and merges into the existing DB by downloading it first from blob storage.
+
+After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
+
+## C4. Shortcut for later: `d365fo-mcp-data-platform-upgrade`
+This is C2 + C3 fused into one run. Use it only after a D365FO version upgrade or hotfix rollup when you already re-uploaded a fresh `PackagesLocalDirectory.zip`. Same prerequisite as C2 — the blob must be up-to-date first.
 
 ---
 
