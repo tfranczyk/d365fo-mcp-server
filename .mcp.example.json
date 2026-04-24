@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "d365fo-mcp-azure": {
+      "url": "https://<your-app>.azurewebsites.net/mcp/",
+      "requestInit": {
+        "headers": {
+          "X-Api-Key": "<value from API_KEY app setting>"
+        }
+      }
+    },
+    "d365fo-mcp-local": {
+      "command": "node",
+      "args": [
+        "C:\\Repos\\d365fo-mcp-server\\dist\\index.js",
+        "--stdio"
+      ],
+      "env": {
+        "MCP_SERVER_MODE": "write-only",
+        "D365FO_PACKAGE_PATH": "J:\\AosService\\PackagesLocalDirectory",
+        "PACKAGES_PATH": "J:\\AosService\\PackagesLocalDirectory",
+        "D365FO_SOLUTIONS_PATH": "C:\\Repos\\D365FO-Intax",
+        "CUSTOM_MODELS": "MyPackage",
+        "LABEL_LANGUAGES": "en-US,pl"
+      }
+    }
+  }
+}

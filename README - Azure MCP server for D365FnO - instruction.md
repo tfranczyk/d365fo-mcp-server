@@ -9,6 +9,14 @@ This instruction deploys the MCP server as a **hybrid**:
 
 Copilot in VS Code (and VS 2022, but we're avoiding it) sees **both servers simultaneously**. Read-heavy queries go to Azure; any write/edit of `.xml` / `.xpp` / labels / project files goes through the local companion — the one tool chain that safely touches AOT XML and `.rnrproj`.
 
+Current implementation scope:
+1) deploy the cloud MCP as read-only,
+2) seed the cloud metadata DB from a D365FO devbox using `scripts/local/build-platform-metadata-local.ps1`,
+3) refresh custom metadata from the D365FO source repo with `d365fo-mcp-data-extract-and-build-custom`,
+4) configure each developer's local stdio MCP as write-only.
+
+`d365fo-cli` is intentionally out of scope for this first rollout. Treat it as a later evaluation path, not a dependency for the hybrid MCP setup below.
+
 **Why not "just Azure + built-in Copilot edits"?** `.github\copilot-instructions.md` in this repo forbids built-in editors on `.xml` / `.xpp` files. AOT objects must be created through `create_d365fo_file` / `modify_d365fo_file` so XML structure, `.rnrproj` entries, model prefixes, label files, and encoding stay consistent.
 
 D365FnO MCP for X++ will:
@@ -93,7 +101,7 @@ App Service → Settings → Environment variables:
 |---|---|
 | `AZURE_STORAGE_CONNECTION_STRING` | Storage account → Access keys → Connection string |
 | `BLOB_CONTAINER_NAME` | `xpp-metadata` |
-| `BLOB_DATABASE_NAME` | `databases/xpp-metadata-latest.db` |
+| `BLOB_DATABASE_NAME` | `database/xpp-metadata.db` |
 | `DB_PATH` | `/tmp/xpp-metadata.db` |
 | `LABELS_DB_PATH` | `/tmp/xpp-metadata-labels.db` |
 | `LABEL_LANGUAGES` | `en-US,pl` (adjust) |
@@ -120,7 +128,7 @@ bash startup.sh
 
 ## B1. Service connections (Project Settings → Service connections)
 1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG.
-2. **GitHub** to the `d365fo-mcp-server` repo — `github.com_tfranczyk` (or adjust `endpoint:` in the YAMLs).
+2. **GitHub** to the `d365fo-mcp-server` repo — `tfranczyk_d365fo-mcp-server` (or adjust `endpoint:` in the YAMLs).
 
 ## B2. Variable Group — `xpp-mcp-server-config`
 Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-server-config`.**
@@ -131,6 +139,7 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `BLOB_CONTAINER_NAME` | No | `xpp-metadata` |
 | `CUSTOM_MODELS` | No | `MyPackage` (comma-separated custom models) |
 | `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
+| `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 | `EXTENSION_PREFIX` | No | `Ang` |
 | `LABEL_LANGUAGES` | No | `en-US,pl` |
 
@@ -198,16 +207,24 @@ On your D365FO VM:
 ### B3.3. Quick self-check before running the pipeline
 In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
 
-## B4. Import the 3 pipelines
+## B4. Import the pipelines
 > Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
 
-Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file** → pick each of:
+Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file**.
+
+For the first hybrid rollout, import these two:
 
 | Pipeline YAML | Purpose | Duration |
 |---|---|---|
-| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Auto-triggers on push to `main`. | ~5–10 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them. Requires approval gate. | ~15–30 min |
-| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | Full D365 upgrade (standard + custom + labels in one run). Requires approval gate. | ~90–120 min |
+| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Manual run. | ~5-10 min |
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them onto the standard DB. Manual or scheduled run. Requires approval gate. | ~15-30 min |
+
+Keep these optional for later; they are not part of the default path in this document:
+
+| Pipeline YAML | Use only when |
+|---|---|
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | You deliberately want Azure DevOps to process a zipped `PackagesLocalDirectory`. Not expected for this rollout. |
+| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | You deliberately want the all-Azure platform + custom rebuild path after a D365FO version upgrade. |
 
 After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
 
@@ -259,7 +276,20 @@ This pipeline does **not** use the `packages` container — it reads sources str
 
 After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
 
-## C4. Optional alternative: `d365fo-mcp-data-platform-upgrade`
+## C4. Schedule daily custom metadata refresh
+Set a daily schedule for `d365fo-mcp-data-extract-and-build-custom` in Azure DevOps after the first successful manual run.
+
+Recommended default parameters:
+
+| Parameter | Value |
+|---|---|
+| `extractionMode` | `custom` |
+| `customModels` | `all` or your comma-separated model list |
+| `skipExtraction` | `false` |
+
+This keeps the cloud read-only MCP close to the latest committed D365FO code while all write operations still happen only on developer machines through the local companion.
+
+## C5. Optional alternative: `d365fo-mcp-data-platform-upgrade`
 This is the zip-based Azure equivalent of C2 + C3 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip`.
 
 ---
@@ -274,17 +304,18 @@ This runs on your D365FO development VM (same box that has Visual Studio 2022 + 
 - `Install-D365SupportingSoftware -Name vscode,python`
   - If Node.js install fails, grab it from https://nodejs.org and use **Repair** if needed.
 - Add Node.js to the system `Path` (e.g. `C:\Program Files\nodejs\`) via *Edit the system environment variables*.
+- .NET SDK / Visual Studio build tools available to build the C# bridge.
 - Reopen terminal as Admin.
 
 ## D1. Clone and build the server locally
 ```powershell
 cd C:\Repos
-git clone https://github.com/dynamics365ninja/d365fo-mcp-server.git
+git clone https://github.com/tfranczyk/d365fo-mcp-server.git
 cd d365fo-mcp-server
 npm install
 ```
 
-Build the C# bridge (required for metadata extraction only, but keep it compiled):
+Build the C# bridge. This is mandatory for local write tools such as `create_d365fo_file` and `modify_d365fo_file`.
 ```powershell
 cd bridge\D365MetadataBridge
 dotnet build -c Release -p:D365BinPath="J:\AosService\PackagesLocalDirectory\bin"
@@ -300,11 +331,13 @@ Edit `.env` — at minimum:
 
 | Key | Value |
 |---|---|
-| `PACKAGES_PATH` | `J:\AosService\PackagesLocalDirectory` (or your path) |
+| `D365FO_PACKAGE_PATH` | `J:\AosService\PackagesLocalDirectory` (or your path) |
+| `PACKAGES_PATH` | same value as `D365FO_PACKAGE_PATH` (legacy compatibility) |
+| `D365FO_SOLUTIONS_PATH` | root folder that contains your local `.sln` / `.rnrproj` workspaces |
 | `CUSTOM_MODELS` | `MyPackage,OtherPackage` |
 | `LABEL_LANGUAGES` | `en-US,cs,de` (match Azure) |
 
-You do **not** need to run `npm run extract-metadata` / `build-database` locally — the companion is write-only and does not serve search results. Read queries hit Azure, which already has the DB.
+You do **not** need to run `npm run extract-metadata` / `build-database` for the local companion. In `write-only` mode it skips the cloud database and serves only local file/build tools. Read queries hit Azure, which already has the DB.
 
 Build TypeScript:
 ```powershell
@@ -338,7 +371,7 @@ VS 2022 / VS Code walks upward from the `.sln` folder and picks `.github\copilot
 # Part E — Wire both MCP servers into Copilot
 
 ## E1. `.mcp.json` — two servers at once
-Put this at `%USERPROFILE%\.mcp.json` (both VS 2022 and VS Code pick it up):
+Start from [.mcp.example.json](.mcp.example.json), adjust the URL, API key, paths, and model names, then place it at `%USERPROFILE%\.mcp.json` (both VS 2022 and VS Code pick it up):
 
 ```jsonc
 {
@@ -356,8 +389,11 @@ Put this at `%USERPROFILE%\.mcp.json` (both VS 2022 and VS Code pick it up):
       "args": ["C:\\Repos\\d365fo-mcp-server\\dist\\index.js", "--stdio"],
       "env": {
         "MCP_SERVER_MODE": "write-only",
+        "D365FO_PACKAGE_PATH": "J:\\AosService\\PackagesLocalDirectory",
         "PACKAGES_PATH": "J:\\AosService\\PackagesLocalDirectory",
-        "CUSTOM_MODELS": "MyPackage"
+        "D365FO_SOLUTIONS_PATH": "C:\\Repos\\D365FO-Intax",
+        "CUSTOM_MODELS": "MyPackage",
+        "LABEL_LANGUAGES": "en-US,pl"
       }
     }
   }
@@ -367,10 +403,11 @@ Put this at `%USERPROFILE%\.mcp.json` (both VS 2022 and VS Code pick it up):
 - Omit `X-Api-Key` if you did not set `API_KEY`.
 - Adjust paths. Use **double backslashes** in JSON.
 - The local entry uses `command`/`args` (stdio) — VS Code / VS 2022 will spawn it on demand.
+- Keep `D365FO_PACKAGE_PATH` and `PACKAGES_PATH` aligned; the former is the primary name, the latter keeps older scripts/tools happy.
 
 Copy into place:
 ```powershell
-Copy-Item -Path ".\.mcp.json" -Destination "$env:USERPROFILE\.mcp.json" -Force
+Copy-Item -Path ".\.mcp.example.json" -Destination "$env:USERPROFILE\.mcp.json" -Force
 ```
 
 ## E2. Enable Copilot MCP integration
@@ -395,8 +432,8 @@ If Copilot offers to edit `.xml` with a built-in editor instead of calling the l
 
 | Event | Azure side | Local companion |
 |---|---|---|
-| Server code change pushed to `main` | `d365fo-mcp-app-deploy` auto-runs | `git pull` + `npm install` + `npm run build` |
-| Your custom models changed | `d365fo-mcp-data-extract-and-build-custom` + restart App Service | — |
+| Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | `git pull` + `npm install` + `npm run build` |
+| Your custom models changed | Run or wait for scheduled `d365fo-mcp-data-extract-and-build-custom` + restart App Service | — |
 | D365FO version upgrade / hotfix | Run local `scripts/local/build-platform-metadata-local.ps1`, then `d365fo-mcp-data-extract-and-build-custom` | Rebuild the C# bridge against the new `bin` folder |
 | New developer joins | Nothing | Follow Part D + E |
 | Rotate API key | Update `API_KEY` app setting + restart | Update `X-Api-Key` in every dev's `.mcp.json` |
