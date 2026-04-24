@@ -131,7 +131,8 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `BLOB_CONTAINER_NAME` | No | `xpp-metadata` |
 | `CUSTOM_MODELS` | No | `MyPackage` (comma-separated custom models) |
 | `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
-| `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
+| `EXTENSION_PREFIX` | No | `Ang` |
+| `LABEL_LANGUAGES` | No | `en-US,pl` |
 
 ## B3. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
 This is **not required** for the recommended flow in Part C, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.

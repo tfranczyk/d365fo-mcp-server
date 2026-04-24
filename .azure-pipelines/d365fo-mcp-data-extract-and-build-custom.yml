@@ -47,9 +47,9 @@ variables:
   - name: LABELS_DB_PATH
     value: './database/xpp-metadata-labels.db'
   - name: PACKAGES_PATH
-    value: '$(Build.SourcesDirectory)/Metadata'
+    value: '$(Build.Repository.LocalPath)/Metadata'
   - name: MCP_SERVER_PATH
-    value: '$(Build.SourcesDirectory)/mcp-server'
+    value: '$(Pipeline.Workspace)/mcp-server'
 
 stages:
   # ============================================================================
@@ -99,11 +99,105 @@ stages:
               versionSpec: $(nodeVersion)
 
           - script: |
+              set -e
+              echo "Resolving checkout paths..."
+
+              CANDIDATE_MCP_1="$(Pipeline.Workspace)/mcp-server"
+              CANDIDATE_MCP_2="$(Build.SourcesDirectory)/mcp-server"
+              CANDIDATE_MCP_3="$(Pipeline.Workspace)/s/mcp-server"
+
+              if [ -f "$CANDIDATE_MCP_1/package.json" ]; then
+                RESOLVED_MCP="$CANDIDATE_MCP_1"
+              elif [ -f "$CANDIDATE_MCP_2/package.json" ]; then
+                RESOLVED_MCP="$CANDIDATE_MCP_2"
+              elif [ -f "$CANDIDATE_MCP_3/package.json" ]; then
+                RESOLVED_MCP="$CANDIDATE_MCP_3"
+              else
+                echo "ERROR: Could not resolve MCP server path"
+                echo "Checked:"
+                echo " - $CANDIDATE_MCP_1"
+                echo " - $CANDIDATE_MCP_2"
+                echo " - $CANDIDATE_MCP_3"
+                exit 1
+              fi
+
+              echo "Resolved MCP_SERVER_PATH: $RESOLVED_MCP"
+              echo "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+              echo "Pipeline.Workspace: $(Pipeline.Workspace)"
+
+              echo "##vso[task.setvariable variable=MCP_SERVER_PATH]$RESOLVED_MCP"
+            displayName: 'Resolve checkout paths'
+
+          - script: |
               echo "MCP_SERVER_PATH: $(MCP_SERVER_PATH)"
               echo "PACKAGES_PATH: $(PACKAGES_PATH)"
               ls -la "$(MCP_SERVER_PATH)" | head -20
               npm ci
             displayName: 'Install NPM dependencies'
+            workingDirectory: '$(MCP_SERVER_PATH)'
+
+          - script: |
+              set -e
+              echo "Validating D365FO package path..."
+
+              has_model_folders() {
+                local root="$1"
+                [ -d "$root" ] || return 1
+                find "$root" -mindepth 3 -maxdepth 3 -type d \( \
+                  -iname 'AxClass' -o -iname 'AxTable' -o -iname 'AxForm' -o \
+                  -iname 'AxQuery' -o -iname 'AxView' -o -iname 'AxDataEntityView' -o \
+                  -iname 'AxEnum' -o -iname 'AxEdt' -o -iname 'AxReport' \
+                \) | head -1 | grep -q .
+              }
+
+              CANDIDATES=(
+                "$(PACKAGES_PATH)"
+                "$(Build.Repository.LocalPath)/PackagesLocalDirectory"
+                "$(Build.Repository.LocalPath)/Metadata"
+                "$(Build.SourcesDirectory)/PackagesLocalDirectory"
+                "$(Build.SourcesDirectory)/Metadata"
+              )
+
+              RESOLVED_PACKAGES=""
+              for candidate in "${CANDIDATES[@]}"; do
+                if has_model_folders "$candidate"; then
+                  RESOLVED_PACKAGES="$candidate"
+                  break
+                fi
+              done
+
+              # Fallback: scan the self repository and derive package root from an Ax* folder path.
+              if [ -z "$RESOLVED_PACKAGES" ]; then
+                REPO_ROOT="$(Build.Repository.LocalPath)"
+                AX_DIR=$(find "$REPO_ROOT" -mindepth 3 -maxdepth 8 -type d \( \
+                  -iname 'AxClass' -o -iname 'AxTable' -o -iname 'AxForm' -o \
+                  -iname 'AxQuery' -o -iname 'AxView' -o -iname 'AxDataEntityView' -o \
+                  -iname 'AxEnum' -o -iname 'AxEdt' -o -iname 'AxReport' \
+                \) | head -1 || true)
+
+                if [ -n "$AX_DIR" ]; then
+                  # Example: <root>/<Model>/<Model>/AxClass => root is 3 levels above AxClass.
+                  RESOLVED_PACKAGES=$(dirname "$(dirname "$(dirname "$AX_DIR")")")
+                  echo "Discovered Ax* folder: $AX_DIR"
+                fi
+              fi
+
+              if [ -z "$RESOLVED_PACKAGES" ]; then
+                echo "ERROR: Could not resolve D365FO package path (no model Ax* folders found)"
+                echo "Checked:"
+                for candidate in "${CANDIDATES[@]}"; do
+                  echo " - $candidate"
+                done
+                echo "Repository root scanned: $(Build.Repository.LocalPath)"
+                echo "Tip: set PACKAGES_PATH to your repo root that contains <Model>/<Model>/AxClass"
+                exit 1
+              fi
+
+              echo "Resolved PACKAGES_PATH: $RESOLVED_PACKAGES"
+              echo "##vso[task.setvariable variable=PACKAGES_PATH]$RESOLVED_PACKAGES"
+              echo "##vso[task.setvariable variable=D365FO_PACKAGE_PATH]$RESOLVED_PACKAGES"
+            displayName: 'Validate D365FO package path'
+            condition: eq('${{ parameters.skipExtraction }}', false)
             workingDirectory: '$(MCP_SERVER_PATH)'
 
           # ========== Step 2a: Download Existing DB (custom mode, skipExtraction=false) ==========
@@ -234,6 +328,7 @@ stages:
             workingDirectory: '$(MCP_SERVER_PATH)'
             env:
               PACKAGES_PATH: $(PACKAGES_PATH)
+              D365FO_PACKAGE_PATH: $(D365FO_PACKAGE_PATH)
               METADATA_PATH: $(METADATA_PATH)
               EXTENSION_PREFIX: $(EXTENSION_PREFIX)
 
@@ -261,6 +356,7 @@ stages:
               DB_PATH: $(DB_PATH)
               LABELS_DB_PATH: $(LABELS_DB_PATH)
               PACKAGES_PATH: $(PACKAGES_PATH)
+              D365FO_PACKAGE_PATH: $(D365FO_PACKAGE_PATH)
               EXTRACT_MODE: '${{ parameters.extractionMode }}'
               ${{ if parameters.skipExtraction }}:
                 INCLUDE_LABELS: 'false'
