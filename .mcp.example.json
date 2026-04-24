@@ -1,11 +1,10 @@
 {
   "servers": {
     "d365fo-mcp-azure": {
+      "type": "http",
       "url": "https://<your-app>.azurewebsites.net/mcp/",
-      "requestInit": {
-        "headers": {
-          "X-Api-Key": "<value from API_KEY app setting>"
-        }
+      "headers": {
+        "X-Api-Key": "${input:d365fo-api-key}"
       }
     },
     "d365fo-mcp-local": {
@@ -23,5 +22,13 @@
         "LABEL_LANGUAGES": "en-US,pl"
       }
     }
-  }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "d365fo-api-key",
+      "description": "D365FO MCP Azure API key",
+      "password": true
+    }
+  ]
 }

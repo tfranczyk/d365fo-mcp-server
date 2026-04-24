@@ -370,18 +370,21 @@ VS 2022 / VS Code walks upward from the `.sln` folder and picks `.github\copilot
 
 # Part E — Wire both MCP servers into Copilot
 
-## E1. `.mcp.json` — two servers at once
-Start from [.mcp.example.json](.mcp.example.json), adjust the URL, API key, paths, and model names, then place it at `%USERPROFILE%\.mcp.json` (both VS 2022 and VS Code pick it up):
+## E1. MCP config — two servers at once
+Start from [.mcp.example.json](.mcp.example.json), adjust URL, API key, paths, and model names.
+
+For **VS Code**, use Command Palette → `MCP: Open User Configuration` and edit the generated `mcp.json` (user profile config used by Copilot Chat).
+
+Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `requestInit.headers`):
 
 ```jsonc
 {
   "servers": {
     "d365fo-mcp-azure": {
+      "type": "http",
       "url": "https://<your-app>.azurewebsites.net/mcp/",
-      "requestInit": {
-        "headers": {
-          "X-Api-Key": "<value from API_KEY app setting>"
-        }
+      "headers": {
+        "X-Api-Key": "${input:d365fo-api-key}"
       }
     },
     "d365fo-mcp-local": {
@@ -396,7 +399,15 @@ Start from [.mcp.example.json](.mcp.example.json), adjust the URL, API key, path
         "LABEL_LANGUAGES": "en-US,pl"
       }
     }
-  }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "d365fo-api-key",
+      "description": "D365FO MCP Azure API key",
+      "password": true
+    }
+  ]
 }
 ```
 
@@ -404,10 +415,18 @@ Start from [.mcp.example.json](.mcp.example.json), adjust the URL, API key, path
 - Adjust paths. Use **double backslashes** in JSON.
 - The local entry uses `command`/`args` (stdio) — VS Code / VS 2022 will spawn it on demand.
 - Keep `D365FO_PACKAGE_PATH` and `PACKAGES_PATH` aligned; the former is the primary name, the latter keeps older scripts/tools happy.
+- If you keep a separate `%USERPROFILE%\\.mcp.json` for your own automation, sync it into VS Code user `mcp.json` explicitly (VS Code does not guarantee direct pickup of `%USERPROFILE%\\.mcp.json` in all setups).
 
 Copy into place:
 ```powershell
-Copy-Item -Path ".\.mcp.example.json" -Destination "$env:USERPROFILE\.mcp.json" -Force
+Copy-Item -Path ".\.mcp.example.json" -Destination "$env:APPDATA\Code\User\mcp.json" -Force
+```
+
+Optional one-way sync from `%USERPROFILE%\\.mcp.json` into VS Code user config:
+```powershell
+if (Test-Path "$env:USERPROFILE\.mcp.json") {
+  Copy-Item -Path "$env:USERPROFILE\.mcp.json" -Destination "$env:APPDATA\Code\User\mcp.json" -Force
+}
 ```
 
 ## E2. Enable Copilot MCP integration
@@ -447,6 +466,7 @@ If Copilot offers to edit `.xml` with a built-in editor instead of calling the l
 - `better-sqlite3` crash → zip built on Windows. Re-run `d365fo-mcp-app-deploy`.
 - Tool count = 0 → DB downloaded but empty. Re-run a data pipeline.
 - 401 on `/mcp/*` → `API_KEY` set but client missing `X-Api-Key`.
+- Warning `Error populating auth server metadata...` / `Could not fetch resource metadata...` in VS Code logs usually means the client did not send API auth header; verify Azure entry uses `"type": "http"` and top-level `"headers"`.
 - Pipeline "service connection not found" → names in Service Connections must match `AZURE_SUBSCRIPTION` var + `endpoint:` in YAML.
 - Variable group not found → must be named exactly `xpp-mcp-server-config`.
 
