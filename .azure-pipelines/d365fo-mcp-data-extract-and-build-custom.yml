@@ -49,7 +49,7 @@ variables:
   - name: PACKAGES_PATH
     value: '$(Build.SourcesDirectory)/Metadata'
   - name: MCP_SERVER_PATH
-    value: '$(Pipeline.Workspace)/mcp-server'
+    value: '$(Build.SourcesDirectory)/mcp-server'
 
 stages:
   # ============================================================================
@@ -98,7 +98,11 @@ stages:
             inputs:
               versionSpec: $(nodeVersion)
 
-          - script: npm ci
+          - script: |
+              echo "MCP_SERVER_PATH: $(MCP_SERVER_PATH)"
+              echo "PACKAGES_PATH: $(PACKAGES_PATH)"
+              ls -la "$(MCP_SERVER_PATH)" | head -20
+              npm ci
             displayName: 'Install NPM dependencies'
             workingDirectory: '$(MCP_SERVER_PATH)'
 
@@ -125,14 +129,14 @@ stages:
               SAS_TOKEN=$(az storage container generate-sas \
                 --account-name "$ACCOUNT_NAME" \
                 --account-key "$ACCOUNT_KEY" \
-                --name "$(BLOB_CONTAINER_NAME)" \
+                --name "$BLOB_CONTAINER_NAME" \
                 --permissions rl \
                 --expiry "$EXPIRY" \
                 --output tsv)
 
-              TEMP_DIR="$(MCP_SERVER_PATH)/_azcopy_tmp_std"
-              DEST_DIR="$(MCP_SERVER_PATH)/metadata"
-              SOURCE_URL="https://${ACCOUNT_NAME}.blob.core.windows.net/$(BLOB_CONTAINER_NAME)/metadata/standard/?${SAS_TOKEN}"
+              TEMP_DIR="$MCP_SERVER_PATH/_azcopy_tmp_std"
+              DEST_DIR="$MCP_SERVER_PATH/metadata"
+              SOURCE_URL="https://${ACCOUNT_NAME}.blob.core.windows.net/${BLOB_CONTAINER_NAME}/metadata/standard/?${SAS_TOKEN}"
 
               echo "Downloading standard metadata via azcopy..."
               mkdir -p "$TEMP_DIR" "$DEST_DIR"
@@ -164,14 +168,14 @@ stages:
               SAS_TOKEN=$(az storage container generate-sas \
                 --account-name "$ACCOUNT_NAME" \
                 --account-key "$ACCOUNT_KEY" \
-                --name "$(BLOB_CONTAINER_NAME)" \
+                --name "$BLOB_CONTAINER_NAME" \
                 --permissions rl \
                 --expiry "$EXPIRY" \
                 --output tsv)
 
-              TEMP_DIR="$(MCP_SERVER_PATH)/_azcopy_tmp_cust"
-              DEST_DIR="$(MCP_SERVER_PATH)/metadata"
-              SOURCE_URL="https://${ACCOUNT_NAME}.blob.core.windows.net/$(BLOB_CONTAINER_NAME)/metadata/custom/?${SAS_TOKEN}"
+              TEMP_DIR="$MCP_SERVER_PATH/_azcopy_tmp_cust"
+              DEST_DIR="$MCP_SERVER_PATH/metadata"
+              SOURCE_URL="https://${ACCOUNT_NAME}.blob.core.windows.net/${BLOB_CONTAINER_NAME}/metadata/custom/?${SAS_TOKEN}"
 
               echo "Downloading custom metadata via azcopy..."
               mkdir -p "$TEMP_DIR" "$DEST_DIR"
