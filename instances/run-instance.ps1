@@ -56,9 +56,41 @@ if ($InstanceName) {
     $selected = $instances[$index]
 }
 
+# ── Helper: read a value from an .env file ─────────────────────────────────
+function Get-EnvValue([string]$envFile, [string]$key) {
+    $line = Select-String -Path $envFile -Pattern "^\s*$key\s*=" -List | Select-Object -First 1
+    if ($line) { return ($line.Line -replace "^\s*$key\s*=\s*", '').Trim() }
+    return $null
+}
+
 # ── Run ─────────────────────────────────────────────────────────────────────
 $envFile = Join-Path $selected.FullName '.env'
 $env:ENV_FILE = $envFile
+
+# ── Warn if XPP_CONFIG_NAME no longer resolves ──────────────────────────────
+$envType = Get-EnvValue $envFile 'DEV_ENVIRONMENT_TYPE'
+$configName = Get-EnvValue $envFile 'XPP_CONFIG_NAME'
+if ($configName -and ($envType -ne 'traditional')) {
+    # Rebuild normalises XPP_CONFIG_NAME to the full versioned filename, so a
+    # plain file-exists check is enough: if the pinned file is gone, the UDE
+    # was upgraded and the DB is stale.
+    $configDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Dynamics365\XPPConfig'
+    $configPath = Join-Path $configDir "$configName.json"
+    if (-not (Test-Path $configPath)) {
+        Write-Host ''
+        Write-Host 'WARNING: XPP_CONFIG_NAME does not match any file in' -ForegroundColor Yellow
+        Write-Host "  $configDir" -ForegroundColor Yellow
+        Write-Host "  Current value: $configName" -ForegroundColor Yellow
+        Write-Host '  The UDE may have been upgraded since this instance was configured.' -ForegroundColor Yellow
+        Write-Host "  Fix with:  .\instances\upgrade-instance.ps1 $($selected.Name)" -ForegroundColor Yellow
+        Write-Host ''
+        $answer = Read-Host 'Continue anyway? [y/N]'
+        if ($answer -ne 'y') {
+            Write-Host 'Aborted.' -ForegroundColor DarkGray
+            exit 0
+        }
+    }
+}
 
 Write-Host ''
 Write-Host "Starting instance: $($selected.Name)" -ForegroundColor Green
