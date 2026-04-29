@@ -382,9 +382,9 @@ Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `r
   "servers": {
     "d365fo-mcp-azure": {
       "type": "http",
-      "url": "https://<your-app>.azurewebsites.net/mcp/",
+      "url": "https://<your app>.azurewebsites.net/mcp/",
       "headers": {
-        "X-Api-Key": "${input:d365fo-api-key}"
+        "X-Api-Key": "<your-X-Api-Key>"
       }
     },
     "d365fo-mcp-local": {
@@ -392,22 +392,14 @@ Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `r
       "args": ["C:\\Repos\\d365fo-mcp-server\\dist\\index.js", "--stdio"],
       "env": {
         "MCP_SERVER_MODE": "write-only",
-        "D365FO_PACKAGE_PATH": "J:\\AosService\\PackagesLocalDirectory",
-        "PACKAGES_PATH": "J:\\AosService\\PackagesLocalDirectory",
+        "D365FO_PACKAGE_PATH": "C:\\AosService\\PackagesLocalDirectory",
+        "PACKAGES_PATH": "C:\\AosService\\PackagesLocalDirectory",
         "D365FO_SOLUTIONS_PATH": "C:\\Repos\\D365FO-Intax",
-        "CUSTOM_MODELS": "MyPackage",
+        "CUSTOM_MODELS": "<your list>",
         "LABEL_LANGUAGES": "en-US,pl"
       }
     }
-  },
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "d365fo-api-key",
-      "description": "D365FO MCP Azure API key",
-      "password": true
-    }
-  ]
+  }
 }
 ```
 
