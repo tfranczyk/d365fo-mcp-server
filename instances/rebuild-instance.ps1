@@ -69,6 +69,48 @@ function Show-MissingSettings([System.IO.DirectoryInfo]$inst) {
     return $true
 }
 
+# ── Helper: normalise XPP_CONFIG_NAME to the full versioned filename ────────
+# If the .env has a short name (e.g. "myenv-dev"), resolve it to the current
+# versioned file (e.g. "myenv-dev___10.0.2345.153") and rewrite the .env so
+# run-instance can later detect UDE upgrades with a plain file-exists check.
+function Normalize-XppConfigName([string]$envFile) {
+    $envType = Get-EnvValue $envFile 'DEV_ENVIRONMENT_TYPE'
+    if ($envType -eq 'traditional') { return }
+
+    $configName = Get-EnvValue $envFile 'XPP_CONFIG_NAME'
+    if (-not $configName) { return }
+    # Already a full versioned name
+    if ($configName -match '^(.+)___(.+)$') { return }
+
+    $configDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Dynamics365\XPPConfig'
+    if (-not (Test-Path $configDir)) { return }
+
+    $match = @(Get-ChildItem -Path $configDir -Filter '*.json' -File |
+        Where-Object { $_.Name -match "^$([regex]::Escape($configName))___(.+)\.json$" } |
+        Sort-Object LastWriteTime -Descending)
+    if ($match.Count -eq 0) {
+        Write-Host ''
+        Write-Host "WARNING: XPP_CONFIG_NAME '$configName' does not match any config in $configDir" -ForegroundColor Yellow
+        Write-Host '  Leaving .env unchanged; rebuild will likely fail.' -ForegroundColor Yellow
+        return
+    }
+
+    $full = $match[0].BaseName
+    $content = Get-Content $envFile -Raw
+    $content = $content -replace '(?m)^XPP_CONFIG_NAME=.*$', "XPP_CONFIG_NAME=$full"
+    Set-Content -Path $envFile -Value $content -NoNewline
+
+    Write-Host ''
+    Write-Host "Expanded XPP_CONFIG_NAME: $configName -> $full" -ForegroundColor Cyan
+}
+
+# ── Helper: read a value from an .env file ─────────────────────────────────
+function Get-EnvValue([string]$envFile, [string]$key) {
+    $line = Select-String -Path $envFile -Pattern "^\s*$key\s*=" -List | Select-Object -First 1
+    if ($line) { return ($line.Line -replace "^\s*$key\s*=\s*", '').Trim() }
+    return $null
+}
+
 # ── Helper: rebuild a single instance ───────────────────────────────────────
 function Rebuild-SingleInstance([System.IO.DirectoryInfo]$inst) {
     $envFile = Join-Path $inst.FullName '.env'
@@ -79,6 +121,8 @@ function Rebuild-SingleInstance([System.IO.DirectoryInfo]$inst) {
     Write-Host "Rebuilding: $($inst.Name)" -ForegroundColor Green
     Write-Host "Config: $envFile" -ForegroundColor DarkGray
     Write-Host ('=' * 60) -ForegroundColor DarkGray
+
+    Normalize-XppConfigName $envFile
 
     Write-Host ''
     Write-Host '[1/2] Extracting metadata...' -ForegroundColor Cyan
