@@ -139,7 +139,7 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `AZURE_STORAGE_CONNECTION_STRING` | Yes | (from storage account) |
 | `BLOB_CONTAINER_NAME` | No | `xpp-metadata` |
 | `CUSTOM_MODELS` | No | `MyPackage` (comma-separated custom models) |
-| `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
+| `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` (actually the service connection name...) |
 | `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 | `EXTENSION_PREFIX` | No | `Ang` |
 | `LABEL_LANGUAGES` | No | `en-US,pl` |
