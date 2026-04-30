@@ -144,12 +144,52 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `EXTENSION_PREFIX` | No | `Ang` |
 | `LABEL_LANGUAGES` | No | `en-US,pl` |
 
-## B3. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
-This is **not required** for the recommended flow in Part C, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
+## B3. Import the pipelines
+> Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
 
-Keep this zip-based path only if you intentionally want to run pipelines `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Re-upload only after a D365FO version upgrade or major hotfix rollup.
+Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file**.
 
-### B3.1. What the zip must contain
+For the first hybrid rollout, import these two:
+
+| Pipeline YAML | Purpose | Duration |
+|---|---|---|
+| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Manual run. | ~5-10 min |
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them onto the standard DB. Manual or scheduled run. Requires approval gate. | ~15-30 min |
+
+Keep these optional for later; they are not part of the default path in this document:
+
+| Pipeline YAML | Use only when |
+|---|---|
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | You deliberately want Azure DevOps to process a zipped `PackagesLocalDirectory`. Not expected for this rollout. |
+| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | You deliberately want the all-Azure platform + custom rebuild path after a D365FO version upgrade. |
+
+After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
+
+---
+
+# Part C — First rollout (recommended order)
+
+Run these steps **in this exact order**. Each step depends on the previous one.
+
+## C1. Run `d365fo-mcp-app-deploy`
+Deploys server code to App Service. The app boots in read-only mode but its database is empty until C3 finishes. Verify it at least serves `/health`:
+
+```
+GET https://<your-app>.azurewebsites.net/health
+```
+
+Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
+
+> Why first? Because C4 auto-restarts the Azure App Service at the end, and C3 can also do so when you pass `-RestartAppService` — there has to be *something* deployed to restart.
+
+## C2. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
+This is **not required** for the recommended flow, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
+
+Keep this zip-based path only if you intentionally want to run pipelines `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Upload or re-upload the package **after C1**, not before the app deploy. In practice, redeploys or resource recreation during the Azure rollout can make an earlier package upload disappear or become stale, so treat C2 as the safe upload point.
+
+Re-upload only after a D365FO version upgrade or major hotfix rollup.
+
+### C2.1. What the zip must contain
 The platform pipeline unpacks the archive with:
 
 ```bash
@@ -179,7 +219,7 @@ Wrong (will fail the `ls -la $(Pipeline.Workspace)/PackagesLocalDirectory` sanit
 
 > Even if you exclude UnitTest/DemoData, the remaining zip typically contains 350+ Microsoft standard models. Platform pipeline only processes these — custom models come later from Git source.
 
-### B3.2. Create and upload the zip
+### C2.2. Create and upload the zip
 On your D365FO VM:
 
 1. Stop AOS / DynamicsAxBatch services if they are running (avoids "file in use" during compression).
@@ -205,54 +245,21 @@ On your D365FO VM:
    - Choose `C:\Temp\PackagesLocalDirectory.zip`
    - The blob name **must stay exactly `PackagesLocalDirectory.zip`** (that's what the pipeline downloads)
 
-### B3.3. Quick self-check before running the pipeline
+### C2.3. Quick self-check before running the pipeline
 In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
 
-## B4. Import the pipelines
-> Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
-
-Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file**.
-
-For the first hybrid rollout, import these two:
-
-| Pipeline YAML | Purpose | Duration |
-|---|---|---|
-| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Manual run. | ~5-10 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them onto the standard DB. Manual or scheduled run. Requires approval gate. | ~15-30 min |
-
-Keep these optional for later; they are not part of the default path in this document:
-
-| Pipeline YAML | Use only when |
-|---|---|
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | You deliberately want Azure DevOps to process a zipped `PackagesLocalDirectory`. Not expected for this rollout. |
-| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | You deliberately want the all-Azure platform + custom rebuild path after a D365FO version upgrade. |
-
-After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
-
----
-
-# Part C — First rollout (recommended order)
-
-Run these steps **in this exact order**. Each step depends on the previous one.
-
-## C1. Run `d365fo-mcp-app-deploy`
-Deploys server code to App Service. The app boots in read-only mode but its database is empty until C2 finishes. Verify it at least serves `/health`:
-
-```
-GET https://<your-app>.azurewebsites.net/health
-```
-
-Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
-
-> Why first? Because C3 auto-restarts the Azure App Service at the end, and C2 can also do so when you pass `-RestartAppService` — there has to be *something* deployed to restart.
-
-## C2. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
+## C3. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
 Run this on a D365FO development box that can read the full `PackagesLocalDirectory` for the current application version.
+
+Do **not** prepare or rely on the repo `.env` file for this step. The script creates its own temporary env file under `.tmp` and points the Node scripts at it via `ENV_FILE`, so `CUSTOM_MODELS`, package paths, label languages, and Azure Blob settings come from the parameters below rather than whatever happens to be in `.env` on the VM.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-local.ps1 `
   -RepoPath "C:\Repos\d365fo-mcp-server" `
   -PackagesPath "K:\AosService\PackagesLocalDirectory" `
+  -CustomModels "MyPackage,OtherPackage" `
+  -ExtensionPrefix "My" `
+  -LabelLanguages "en-US,pl" `
   -StorageConnectionString "<AZURE_STORAGE_CONNECTION_STRING>" `
   -BlobContainerName "xpp-metadata" `
   -RestartAppService `
@@ -261,23 +268,31 @@ powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-l
   -AzureAppServiceName "<app-service-name>"
 ```
 
+Parameter notes:
+- `PackagesPath` points at the local platform `PackagesLocalDirectory` to extract.
+- `CustomModels` is the comma-separated list of customer/custom models to **exclude** from the standard platform extraction. They are layered in later by C4.
+- `ExtensionPrefix` is used as an additional custom-model classifier when model naming follows your prefix convention.
+- `LabelLanguages` controls which label translations are indexed in the labels DB.
+- `StorageConnectionString` is required explicitly; the script no longer falls back to `AZURE_STORAGE_CONNECTION_STRING` from the shell or `.env`.
+
 The script:
-1. Installs dependencies if needed and builds the repo.
-2. Runs `npm run extract-metadata` in `standard` mode against your local `PackagesLocalDirectory`.
-3. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`).
-4. Uploads the standard metadata and databases to Azure Blob Storage.
-5. Optionally restarts the App Service so it pulls the new DB on cold start.
+1. Creates an isolated temporary env file from its parameters and prevents the repo `.env` from being loaded.
+2. Installs dependencies if needed and builds the repo.
+3. Runs `npm run extract-metadata` in `standard` mode against your local `PackagesLocalDirectory`.
+4. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`).
+5. Uploads the standard metadata and databases to Azure Blob Storage.
+6. Optionally restarts the App Service so it pulls the new DB on cold start.
 
 Duration: 60-120 minutes depending on the VM and metadata volume. It is CPU-heavy, so plan for a long-running local job.
 
-## C3. Run `d365fo-mcp-data-extract-and-build-custom`
-Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C2.
+## C4. Run `d365fo-mcp-data-extract-and-build-custom`
+Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C3.
 
 This pipeline does **not** use the `packages` container — it reads sources straight from the Git repo (`checkout: self`) and merges into the existing DB by downloading it first from blob storage.
 
 After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
 
-## C4. Schedule daily custom metadata refresh
+## C5. Schedule daily custom metadata refresh
 Set a daily schedule for `d365fo-mcp-data-extract-and-build-custom` in Azure DevOps after the first successful manual run.
 
 Recommended default parameters:
@@ -290,8 +305,8 @@ Recommended default parameters:
 
 This keeps the cloud read-only MCP close to the latest committed D365FO code while all write operations still happen only on developer machines through the local companion.
 
-## C5. Optional alternative: `d365fo-mcp-data-platform-upgrade`
-This is the zip-based Azure equivalent of C2 + C3 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip`.
+## C6. Optional alternative: `d365fo-mcp-data-platform-upgrade`
+This is the zip-based Azure equivalent of C3 + C4 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip` in C2.
 
 ---
 
