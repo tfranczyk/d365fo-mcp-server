@@ -391,6 +391,22 @@ Start from [.mcp.example.json](.mcp.example.json), adjust URL, API key, paths, a
 
 For **VS Code**, use Command Palette → `MCP: Open User Configuration` and edit the generated `mcp.json` (user profile config used by Copilot Chat).
 
+**Recommended operating model:** keep a **dedicated VS Code profile** for each D365FO customer / environment set, and keep the MCP config inside that profile instead of sharing one global config across unrelated projects.
+
+Why this is the safer default:
+- each profile gets its own `mcp.json`, trust state, cached tools, and secrets
+- Azure URL, `X-Api-Key`, `D365FO_SOLUTIONS_PATH`, `CUSTOM_MODELS`, and label languages stay isolated per customer
+- it avoids accidental cross-use of the wrong local write companion against another customer's repo or `PackagesLocalDirectory`
+- it makes rollback trivial: switch profile instead of rewriting a shared MCP config
+
+Practical conclusion: if you work with more than one tenant / customer / repo family, create profiles such as `Gobarto D365FO`, `Contoso D365FO`, etc., then open `MCP: Open User Configuration` **while that profile is active**. VS Code stores the file under that profile's folder, for example:
+
+```text
+C:\Users\<user>\AppData\Roaming\Code\User\profiles\<profile-id>\mcp.json
+```
+
+Treat that profile-local `mcp.json` as the authoritative config for that environment. Do not rely on a single shared `%APPDATA%\Code\User\mcp.json` if different profiles need different MCP endpoints, API keys, or local paths.
+
 Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `requestInit.headers`):
 
 ```jsonc
@@ -424,6 +440,8 @@ Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `r
 - The local entry uses `command`/`args` (stdio) — VS Code / VS 2022 will spawn it on demand.
 - Keep `D365FO_PACKAGE_PATH` and `PACKAGES_PATH` aligned; the former is the primary name, the latter keeps older scripts/tools happy.
 - If you keep a separate `%USERPROFILE%\\.mcp.json` for your own automation, sync it into VS Code user `mcp.json` explicitly (VS Code does not guarantee direct pickup of `%USERPROFILE%\\.mcp.json` in all setups).
+- If the server is API-key protected, prefer `X-Api-Key` in top-level `headers`. If you see `the authorization server does not support automatic client registration`, first verify the config is using `"type": "http"` and top-level `"headers"` rather than `requestInit.headers`.
+- If that error still appears after the config is corrected, the issue is usually **server-side**: the remote MCP endpoint is advertising OAuth metadata, so VS Code enters the OAuth flow even though you intend to authenticate only with `X-Api-Key`.
 
 Copy into place:
 ```powershell
@@ -444,6 +462,8 @@ if (Test-Path "$env:USERPROFILE\.mcp.json") {
 
 ## E3. Restart your editors
 Fully restart VS 2022 / VS Code after the first `.mcp.json` change. `CTRL+SHIFT+N` in VS Code for a fresh window, open the repo folder, e.g. `C:\Repos\D365FO-Intax`.
+
+When using dedicated profiles, restart the editor **inside the same profile** after changing that profile's `mcp.json`. Do not validate MCP connectivity from another profile and assume the result applies globally.
 
 ## E4. Test
 Open a new chat in **Agent Mode** and ask:
