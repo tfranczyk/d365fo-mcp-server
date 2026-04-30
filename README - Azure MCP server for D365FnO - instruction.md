@@ -127,7 +127,8 @@ bash startup.sh
 # Part B — Azure DevOps wiring (for Azure side)
 
 ## B1. Service connections (Project Settings → Service connections)
-1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG.
+1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG. Keep the identity type as `App registration (automatic)` if possible; at minimum your entry needs only Azure subs, Resource Group. 
+> If anyone else is creating it for you, make sure you're added to its Security config, so it is visible for you.
 2. **GitHub** to the `d365fo-mcp-server` repo — `tfranczyk_d365fo-mcp-server` (or adjust `endpoint:` in the YAMLs).
 
 ## B2. Variable Group — `xpp-mcp-server-config`
@@ -146,7 +147,7 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 ## B3. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
 This is **not required** for the recommended flow in Part C, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
 
-Keep this zip-based path only if you intentionally want to run `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Re-upload only after a D365FO version upgrade or major hotfix rollup.
+Keep this zip-based path only if you intentionally want to run pipelines `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Re-upload only after a D365FO version upgrade or major hotfix rollup.
 
 ### B3.1. What the zip must contain
 The platform pipeline unpacks the archive with:
