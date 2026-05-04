@@ -127,7 +127,8 @@ bash startup.sh
 # Part B — Azure DevOps wiring (for Azure side)
 
 ## B1. Service connections (Project Settings → Service connections)
-1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG.
+1. **Azure Resource Manager** to your subscription — e.g. `xpp-mcp-azure`. Name goes into `AZURE_SUBSCRIPTION`, so try to keep it aligned with ARG. Keep the identity type as `App registration (automatic)` if possible; at minimum your entry needs only Azure subs, Resource Group. 
+> If anyone else is creating it for you, make sure you're added to its Security config, so it is visible for you.
 2. **GitHub** to the `d365fo-mcp-server` repo — `tfranczyk_d365fo-mcp-server` (or adjust `endpoint:` in the YAMLs).
 
 ## B2. Variable Group — `xpp-mcp-server-config`
@@ -138,17 +139,57 @@ Pipelines → Library → + Variable group. **Name must be exactly `xpp-mcp-serv
 | `AZURE_STORAGE_CONNECTION_STRING` | Yes | (from storage account) |
 | `BLOB_CONTAINER_NAME` | No | `xpp-metadata` |
 | `CUSTOM_MODELS` | No | `MyPackage` (comma-separated custom models) |
-| `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` |
+| `AZURE_SUBSCRIPTION` | No | `xpp-mcp-azure` (actually the service connection name...) |
 | `AZURE_APP_SERVICE_NAME` | No | name of the Web App from A1 |
 | `EXTENSION_PREFIX` | No | `Ang` |
 | `LABEL_LANGUAGES` | No | `en-US,pl` |
 
-## B3. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
-This is **not required** for the recommended flow in Part C, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
+## B3. Import the pipelines
+> Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
 
-Keep this zip-based path only if you intentionally want to run `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Re-upload only after a D365FO version upgrade or major hotfix rollup.
+Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file**.
 
-### B3.1. What the zip must contain
+For the first hybrid rollout, import these two:
+
+| Pipeline YAML | Purpose | Duration |
+|---|---|---|
+| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Manual run. | ~5-10 min |
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them onto the standard DB. Manual or scheduled run. Requires approval gate. | ~15-30 min |
+
+Keep these optional for later; they are not part of the default path in this document:
+
+| Pipeline YAML | Use only when |
+|---|---|
+| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | You deliberately want Azure DevOps to process a zipped `PackagesLocalDirectory`. Not expected for this rollout. |
+| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | You deliberately want the all-Azure platform + custom rebuild path after a D365FO version upgrade. |
+
+After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
+
+---
+
+# Part C — First rollout (recommended order)
+
+Run these steps **in this exact order**. Each step depends on the previous one.
+
+## C1. Run `d365fo-mcp-app-deploy`
+Deploys server code to App Service. The app boots in read-only mode but its database is empty until C3 finishes. Verify it at least serves `/health`:
+
+```
+GET https://<your-app>.azurewebsites.net/health
+```
+
+Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
+
+> Why first? Because C4 auto-restarts the Azure App Service at the end, and C3 can also do so when you pass `-RestartAppService` — there has to be *something* deployed to restart.
+
+## C2. Optional: upload `PackagesLocalDirectory.zip` (only for the zip-based platform pipeline path)
+This is **not required** for the recommended flow, where you run `scripts/local/build-platform-metadata-local.ps1` from a D365FO devbox with access to `PackagesLocalDirectory`.
+
+Keep this zip-based path only if you intentionally want to run pipelines `d365fo-mcp-data-extract-and-build-platform` or `d365fo-mcp-data-platform-upgrade`. Upload or re-upload the package **after C1**, not before the app deploy. In practice, redeploys or resource recreation during the Azure rollout can make an earlier package upload disappear or become stale, so treat C2 as the safe upload point.
+
+Re-upload only after a D365FO version upgrade or major hotfix rollup.
+
+### C2.1. What the zip must contain
 The platform pipeline unpacks the archive with:
 
 ```bash
@@ -178,7 +219,7 @@ Wrong (will fail the `ls -la $(Pipeline.Workspace)/PackagesLocalDirectory` sanit
 
 > Even if you exclude UnitTest/DemoData, the remaining zip typically contains 350+ Microsoft standard models. Platform pipeline only processes these — custom models come later from Git source.
 
-### B3.2. Create and upload the zip
+### C2.2. Create and upload the zip
 On your D365FO VM:
 
 1. Stop AOS / DynamicsAxBatch services if they are running (avoids "file in use" during compression).
@@ -204,54 +245,21 @@ On your D365FO VM:
    - Choose `C:\Temp\PackagesLocalDirectory.zip`
    - The blob name **must stay exactly `PackagesLocalDirectory.zip`** (that's what the pipeline downloads)
 
-### B3.3. Quick self-check before running the pipeline
+### C2.3. Quick self-check before running the pipeline
 In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
 
-## B4. Import the pipelines
-> Before importing: ensure `.azure-pipelines/` folder exists in your repo root (copy from this repository if needed).
-
-Pipelines → New Pipeline → Azure Repos Git (YAML) → select repo → Configure your pipeline: **Existing Azure Pipelines YAML file**.
-
-For the first hybrid rollout, import these two:
-
-| Pipeline YAML | Purpose | Duration |
-|---|---|---|
-| `.azure-pipelines/d365fo-mcp-app-deploy.yml` | Builds server code + deploys zip to App Service. Manual run. | ~5-10 min |
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-custom.yml` | Extracts custom models from Git and layers them onto the standard DB. Manual or scheduled run. Requires approval gate. | ~15-30 min |
-
-Keep these optional for later; they are not part of the default path in this document:
-
-| Pipeline YAML | Use only when |
-|---|---|
-| `.azure-pipelines/d365fo-mcp-data-extract-and-build-platform.yml` | You deliberately want Azure DevOps to process a zipped `PackagesLocalDirectory`. Not expected for this rollout. |
-| `.azure-pipelines/d365fo-mcp-data-platform-upgrade.yml` | You deliberately want the all-Azure platform + custom rebuild path after a D365FO version upgrade. |
-
-After import, the approval gates (configured in Part B, Approval environment) will prevent execution until you approve in Azure DevOps.
-
----
-
-# Part C — First rollout (recommended order)
-
-Run these steps **in this exact order**. Each step depends on the previous one.
-
-## C1. Run `d365fo-mcp-app-deploy`
-Deploys server code to App Service. The app boots in read-only mode but its database is empty until C2 finishes. Verify it at least serves `/health`:
-
-```
-GET https://<your-app>.azurewebsites.net/health
-```
-
-Expected: `{"status":"ok","mode":"read-only", ...}`. Tool count will be tiny (DB empty) — that's fine at this stage.
-
-> Why first? Because C3 auto-restarts the Azure App Service at the end, and C2 can also do so when you pass `-RestartAppService` — there has to be *something* deployed to restart.
-
-## C2. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
+## C3. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
 Run this on a D365FO development box that can read the full `PackagesLocalDirectory` for the current application version.
+
+Do **not** prepare or rely on the repo `.env` file for this step. The script creates its own temporary env file under `.tmp` and points the Node scripts at it via `ENV_FILE`, so `CUSTOM_MODELS`, package paths, label languages, and Azure Blob settings come from the parameters below rather than whatever happens to be in `.env` on the VM.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-local.ps1 `
   -RepoPath "C:\Repos\d365fo-mcp-server" `
   -PackagesPath "K:\AosService\PackagesLocalDirectory" `
+  -CustomModels "MyPackage,OtherPackage" `
+  -ExtensionPrefix "My" `
+  -LabelLanguages "en-US,pl" `
   -StorageConnectionString "<AZURE_STORAGE_CONNECTION_STRING>" `
   -BlobContainerName "xpp-metadata" `
   -RestartAppService `
@@ -260,23 +268,31 @@ powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-l
   -AzureAppServiceName "<app-service-name>"
 ```
 
+Parameter notes:
+- `PackagesPath` points at the local platform `PackagesLocalDirectory` to extract.
+- `CustomModels` is the comma-separated list of customer/custom models to **exclude** from the standard platform extraction. They are layered in later by C4.
+- `ExtensionPrefix` is used as an additional custom-model classifier when model naming follows your prefix convention.
+- `LabelLanguages` controls which label translations are indexed in the labels DB.
+- `StorageConnectionString` is required explicitly; the script no longer falls back to `AZURE_STORAGE_CONNECTION_STRING` from the shell or `.env`.
+
 The script:
-1. Installs dependencies if needed and builds the repo.
-2. Runs `npm run extract-metadata` in `standard` mode against your local `PackagesLocalDirectory`.
-3. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`).
-4. Uploads the standard metadata and databases to Azure Blob Storage.
-5. Optionally restarts the App Service so it pulls the new DB on cold start.
+1. Creates an isolated temporary env file from its parameters and prevents the repo `.env` from being loaded.
+2. Installs dependencies if needed and builds the repo.
+3. Runs `npm run extract-metadata` in `standard` mode against your local `PackagesLocalDirectory`.
+4. Builds the SQLite databases (`xpp-metadata.db` + `xpp-metadata-labels.db`).
+5. Uploads the standard metadata and databases to Azure Blob Storage.
+6. Optionally restarts the App Service so it pulls the new DB on cold start.
 
 Duration: 60-120 minutes depending on the VM and metadata volume. It is CPU-heavy, so plan for a long-running local job.
 
-## C3. Run `d365fo-mcp-data-extract-and-build-custom`
-Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C2.
+## C4. Run `d365fo-mcp-data-extract-and-build-custom`
+Layers your **custom models** (from the Azure DevOps Git repo) on top of the standard DB produced in C3.
 
 This pipeline does **not** use the `packages` container — it reads sources straight from the Git repo (`checkout: self`) and merges into the existing DB by downloading it first from blob storage.
 
 After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
 
-## C4. Schedule daily custom metadata refresh
+## C5. Schedule daily custom metadata refresh
 Set a daily schedule for `d365fo-mcp-data-extract-and-build-custom` in Azure DevOps after the first successful manual run.
 
 Recommended default parameters:
@@ -289,8 +305,8 @@ Recommended default parameters:
 
 This keeps the cloud read-only MCP close to the latest committed D365FO code while all write operations still happen only on developer machines through the local companion.
 
-## C5. Optional alternative: `d365fo-mcp-data-platform-upgrade`
-This is the zip-based Azure equivalent of C2 + C3 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip`.
+## C6. Optional alternative: `d365fo-mcp-data-platform-upgrade`
+This is the zip-based Azure equivalent of C3 + C4 fused into one run. Use it only if you intentionally want the all-Azure rebuild path after a D365FO version upgrade or hotfix rollup and you already re-uploaded a fresh `PackagesLocalDirectory.zip` in C2.
 
 ---
 
@@ -375,6 +391,22 @@ Start from [.mcp.example.json](.mcp.example.json), adjust URL, API key, paths, a
 
 For **VS Code**, use Command Palette → `MCP: Open User Configuration` and edit the generated `mcp.json` (user profile config used by Copilot Chat).
 
+**Recommended operating model:** keep a **dedicated VS Code profile** for each D365FO customer / environment set, and keep the MCP config inside that profile instead of sharing one global config across unrelated projects.
+
+Why this is the safer default:
+- each profile gets its own `mcp.json`, trust state, cached tools, and secrets
+- Azure URL, `X-Api-Key`, `D365FO_SOLUTIONS_PATH`, `CUSTOM_MODELS`, and label languages stay isolated per customer
+- it avoids accidental cross-use of the wrong local write companion against another customer's repo or `PackagesLocalDirectory`
+- it makes rollback trivial: switch profile instead of rewriting a shared MCP config
+
+Practical conclusion: if you work with more than one tenant / customer / repo family, create profiles such as `Gobarto D365FO`, `Contoso D365FO`, etc., then open `MCP: Open User Configuration` **while that profile is active**. VS Code stores the file under that profile's folder, for example:
+
+```text
+C:\Users\<user>\AppData\Roaming\Code\User\profiles\<profile-id>\mcp.json
+```
+
+Treat that profile-local `mcp.json` as the authoritative config for that environment. Do not rely on a single shared `%APPDATA%\Code\User\mcp.json` if different profiles need different MCP endpoints, API keys, or local paths.
+
 Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `requestInit.headers`):
 
 ```jsonc
@@ -408,6 +440,8 @@ Use this schema for the Azure HTTP server (`type` + `headers`; **do not** use `r
 - The local entry uses `command`/`args` (stdio) — VS Code / VS 2022 will spawn it on demand.
 - Keep `D365FO_PACKAGE_PATH` and `PACKAGES_PATH` aligned; the former is the primary name, the latter keeps older scripts/tools happy.
 - If you keep a separate `%USERPROFILE%\\.mcp.json` for your own automation, sync it into VS Code user `mcp.json` explicitly (VS Code does not guarantee direct pickup of `%USERPROFILE%\\.mcp.json` in all setups).
+- If the server is API-key protected, prefer `X-Api-Key` in top-level `headers`. If you see `the authorization server does not support automatic client registration`, first verify the config is using `"type": "http"` and top-level `"headers"` rather than `requestInit.headers`.
+- If that error still appears after the config is corrected, the issue is usually **server-side**: the remote MCP endpoint is advertising OAuth metadata, so VS Code enters the OAuth flow even though you intend to authenticate only with `X-Api-Key`.
 
 Copy into place:
 ```powershell
@@ -428,6 +462,8 @@ if (Test-Path "$env:USERPROFILE\.mcp.json") {
 
 ## E3. Restart your editors
 Fully restart VS 2022 / VS Code after the first `.mcp.json` change. `CTRL+SHIFT+N` in VS Code for a fresh window, open the repo folder, e.g. `C:\Repos\D365FO-Intax`.
+
+When using dedicated profiles, restart the editor **inside the same profile** after changing that profile's `mcp.json`. Do not validate MCP connectivity from another profile and assume the result applies globally.
 
 ## E4. Test
 Open a new chat in **Agent Mode** and ask:

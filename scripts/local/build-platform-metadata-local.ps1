@@ -3,6 +3,9 @@ Example invocation (basic):
 powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-local.ps1 `
     -RepoPath "C:\Repos\d365fo-mcp-server" `
     -PackagesPath "C:\AosService\PackagesLocalDirectory" `
+    -CustomModels "MyModel,OtherModel" `
+    -ExtensionPrefix "My" `
+    -LabelLanguages "en-US,pl" `
     -StorageConnectionString "<AZURE_STORAGE_CONNECTION_STRING>" `
     -BlobContainerName "xpp-metadata"
 
@@ -10,6 +13,9 @@ Example invocation (with App Service restart):
 powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-local.ps1 `
     -RepoPath "C:\Repos\d365fo-mcp-server" `
     -PackagesPath "C:\AosService\PackagesLocalDirectory" `
+    -CustomModels "MyModel,OtherModel" `
+    -ExtensionPrefix "My" `
+    -LabelLanguages "en-US,pl" `
     -StorageConnectionString "<AZURE_STORAGE_CONNECTION_STRING>" `
     -BlobContainerName "xpp-metadata" `
     -RestartAppService `
@@ -21,9 +27,13 @@ powershell -ExecutionPolicy Bypass -File scripts/local/build-platform-metadata-l
 param(
     [string]$RepoPath = "C:\Repos\d365fo-mcp-server",
     [string]$PackagesPath = "C:\AosService\PackagesLocalDirectory",
+    [string]$CustomModels = "",
+    [string]$ExtensionPrefix = "",
+    [string]$LabelLanguages = "en-US",
     [string]$StorageConnectionString = "",
     [string]$BlobContainerName = "xpp-metadata",
     [string]$WorkRoot = "",
+    [bool]$IncludeLabels = $true,
     [switch]$RestartAppService,
     [string]$AzureSubscription = "",
     [string]$AzureResourceGroup = "",
@@ -65,18 +75,8 @@ if (-not (Test-Path -LiteralPath $PackagesPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($StorageConnectionString)) {
-    if ([string]::IsNullOrWhiteSpace($env:AZURE_STORAGE_CONNECTION_STRING)) {
-        throw "Storage connection string is missing. Pass -StorageConnectionString or set AZURE_STORAGE_CONNECTION_STRING env var."
-    }
-} else {
-    $env:AZURE_STORAGE_CONNECTION_STRING = $StorageConnectionString
+    throw "Storage connection string is missing. Pass -StorageConnectionString explicitly."
 }
-
-$env:BLOB_CONTAINER_NAME = $BlobContainerName
-$env:D365FO_PACKAGE_PATH = $PackagesPath
-$env:PACKAGES_PATH = $PackagesPath
-$env:EXTRACT_MODE = "standard"
-$env:INCLUDE_LABELS = "true"
 
 if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -91,15 +91,88 @@ $labelsDbPath = Join-Path $dataPath "xpp-metadata-labels.db"
 New-Item -ItemType Directory -Path $metadataPath -Force | Out-Null
 New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
 
-$env:METADATA_PATH = $metadataPath
-$env:DB_PATH = $dbPath
-$env:LABELS_DB_PATH = $labelsDbPath
+$envFilePath = Join-Path $WorkRoot "platform-build.env"
+
+function Format-EnvValue {
+    param([string]$Value)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Set-ProcessEnvFromMap {
+    param([hashtable]$Values)
+
+    $keysToClear = @(
+        "AZURE_STORAGE_CONNECTION_STRING",
+        "BLOB_CONTAINER_NAME",
+        "BLOB_DATABASE_NAME",
+        "CUSTOM_MODELS",
+        "CUSTOM_MODELS_PATH",
+        "DB_PATH",
+        "D365FO_CUSTOM_PACKAGES_PATH",
+        "D365FO_MICROSOFT_PACKAGES_PATH",
+        "D365FO_PACKAGE_PATH",
+        "DEV_ENVIRONMENT_TYPE",
+        "ENV_FILE",
+        "EXTRACT_MODE",
+        "EXTENSION_PREFIX",
+        "EXTENSION_SUFFIX",
+        "INCLUDE_LABELS",
+        "LABEL_LANGUAGES",
+        "LABELS_DB_PATH",
+        "METADATA_PATH",
+        "PACKAGES_PATH",
+        "SKIP_FTS",
+        "VACUUM",
+        "XPP_CONFIG_NAME"
+    )
+
+    foreach ($key in $keysToClear) {
+        Remove-Item -Path "Env:$key" -ErrorAction SilentlyContinue
+    }
+
+    foreach ($key in $Values.Keys) {
+        Set-Item -Path "Env:$key" -Value $Values[$key]
+    }
+}
+
+$envValues = @{
+    "AZURE_STORAGE_CONNECTION_STRING" = $StorageConnectionString
+    "BLOB_CONTAINER_NAME"             = $BlobContainerName
+    "CUSTOM_MODELS"                   = $CustomModels
+    "DB_PATH"                         = $dbPath
+    "D365FO_PACKAGE_PATH"             = $PackagesPath
+    "DEV_ENVIRONMENT_TYPE"            = "traditional"
+    "EXTRACT_MODE"                    = "standard"
+    "EXTENSION_PREFIX"                = $ExtensionPrefix
+    "INCLUDE_LABELS"                  = $(if ($IncludeLabels) { "true" } else { "false" })
+    "LABEL_LANGUAGES"                 = $LabelLanguages
+    "LABELS_DB_PATH"                  = $labelsDbPath
+    "METADATA_PATH"                   = $metadataPath
+    "PACKAGES_PATH"                   = $PackagesPath
+}
+
+$envFileLines = foreach ($key in ($envValues.Keys | Sort-Object)) {
+    "$key=$(Format-EnvValue -Value $envValues[$key])"
+}
+
+$envFileLines | Set-Content -LiteralPath $envFilePath -Encoding UTF8
+$envValues["ENV_FILE"] = $envFilePath
+Set-ProcessEnvFromMap -Values $envValues
 
 Write-Host "=== Local platform metadata build ==="
 Write-Host "RepoPath:      $RepoPath"
 Write-Host "PackagesPath:  $PackagesPath"
 Write-Host "WorkRoot:      $WorkRoot"
 Write-Host "Container:     $BlobContainerName"
+Write-Host "CustomModels:  $(if ([string]::IsNullOrWhiteSpace($CustomModels)) { '<none>' } else { $CustomModels })"
+Write-Host "Prefix:        $(if ([string]::IsNullOrWhiteSpace($ExtensionPrefix)) { '<none>' } else { $ExtensionPrefix })"
+Write-Host "Labels:        $(if ($IncludeLabels) { $LabelLanguages } else { 'disabled' })"
+Write-Host "ENV_FILE:      $envFilePath"
 Write-Host ""
 
 Push-Location $RepoPath
