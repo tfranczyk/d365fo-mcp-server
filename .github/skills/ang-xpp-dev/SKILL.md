@@ -7,22 +7,7 @@ user-invocable: true
 
 # ANG X++ Development Excellence Workflow
 
-## Purpose
-
-This skill provides a complete, repeatable workflow for implementing or reviewing Microsoft Dynamics 365 Finance and Operations customizations in X++ with production-grade quality and traceability.
-
-Optimized for:
-- New feature implementation from work item and design docs
-- Refactoring existing customizations to meet standards adn coding principles.
-- Stabilization work when quality or maintainability is low
-
-## What This Skill Produces
-
-- A standards-compliant implementation plan before coding
-- Correct extension strategy (CoC-first, with events only when CoC is impossible)
-- Naming and structure aligned with project prefix and model conventions
-- Traceable documentation blocks in class and method-level comments
-- Verified build/BP/test/review package
+Before coding: confirm work item ID, target model + prefix, artifact type, and modification-parameter expectations. If any are missing, STOP and ask.
 
 ---
 
@@ -36,7 +21,7 @@ These four principles govern HOW the agent approaches an X++ task. They bias tow
 
 Before implementing:
 - State your assumptions explicitly. If uncertain, ask.
-- If multiple extension paths exist (CoC vs event vs new artifact), present them — don't pick silently. Usually we implement new features through CoC, avoid event handlers unless necessary.
+- If multiple extension points exist (several possible classes/methods?), present them — don't pick silently. Usually we implement new features through CoC, avoid event handlers unless necessary.
 - If a simpler approach exists (e.g. new field vs new code), say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
@@ -78,11 +63,6 @@ The test: every changed line traces directly to the work item.
 
 **Define success criteria. Loop until verified.**
 
-Transform tasks into verifiable goals:
-- "Add validation" → "Reject the bad inputs in BP-clean code, then verify on the form"
-- "Fix the bug" → "Reproduce the failure first, then make it pass"
-- "Refactor X" → "BP check passes before AND after"
-
 For multi-artifact tasks, state a brief plan:
 
 ```
@@ -98,8 +78,6 @@ The X++ verification ladder (run in this order):
 3. DB sync if metadata changed. (ran by the user)
 4. System user tests pass for the affected scenario in the affected form / batch / entity.
 
-Strong success criteria let the agent loop independently. Weak criteria ("make it work") require constant clarification.
-
 ---
 
 ## Required Inputs Gate
@@ -109,9 +87,7 @@ Collect these before coding. If any input is missing, STOP and request it.
 1. Work item ID and short title.
 2. Project / model name and project prefix (3-character object prefix) - usually Ang.
 3. Target artifact types (class, table, form, data entity, security, labels).
-4. Functional requirements and functional design references.
-5. Expected user behavior and non-functional constraints.
-6. Legal entity enable/disable expectations for the customization - relevant for the modification parameters.
+4. Legal entity enable/disable expectations for the customization - relevant for the modification parameters.
 
 ---
 
@@ -119,9 +95,8 @@ Collect these before coding. If any input is missing, STOP and request it.
 
 1. **No overlayering.** Use extensions / customization patterns only.
 2. **One work item, one solution, one project**, with aligned naming.
-3. **Solution name and project name are identical.**
-4. **Zero compile errors and zero new BP errors before check-in.** BP warnings only with documented suppression and justification.
-5. **Every change has a traceable work item ID** in code comments.
+3. **Zero compile errors and zero new BP errors before check-in.** BP warnings only with documented suppression and justification.
+4. **Every change has a traceable work item ID** in code comments.
 
 ---
 
@@ -134,31 +109,20 @@ The decision order is **strict**, not advisory.
 3. Otherwise, is the base method `[Hookable(false)]` or `final` without `[Wrappable(true)]`? → Use a standard data event (`[DataEventHandler]`) or existing custom delegate.
 4. Otherwise, create a **new artifact** (class, table, form, entity) — prefixed and isolated.
 
-### Why CoC first
-
-CoC has the strongest contract:
-- Access to **protected** members of the augmented class (since Platform Update 9).
-- Defined execution order with `next`.
-- Survives platform updates because the wrapper is bound by metadata, not by name lookup.
-
-Events are broadcasts: no order guarantees, no protected access, no return value influence, fragile if Microsoft renames the underlying delegate.
-
 ### Use events ONLY when CoC is impossible
 
-Events are not a "lighter" alternative to CoC. The only valid reasons to skip CoC are:
+Events are not an alternative to CoC. The only valid reasons to skip CoC are:
 
 - The base method is `[Hookable(false)]`.
 - The base method is `final` without `[Wrappable(true)]`.
 - The intervention point is a standard data event (`Inserted`, `Updated`, `Deleted`, ...) with no equivalent overridable method.
 - A custom delegate is the only published extension surface.
 
-If CoC works, use it.
-
 ---
 
 ## X++ Language Essentials
 
-These are language facts, verified against Microsoft Learn (URLs in the References section). They override habit.
+These are language facts, verified against Microsoft Standards.
 
 ### Classes & Methods
 
@@ -188,6 +152,12 @@ These are language facts, verified against Microsoft Learn (URLs in the Referenc
 - Always place a space after if and before the instantiating bracket (e.g., if (condition)).
 - Private helper methods must do exactly what their name implies and nothing else. Side effects (e.g., calling `Custinvoicetrans_ds.research()`) should happen outside the helper method unless the helper is explicitly named to perform that research.
 - X++ automatically initializes variables to their empty defaults (e.g., "", 0, dateNull()). Do not explicitly assign empty values upon declaration.
+- Boolean and find-style methods declare a `ret` local on the first line, mutate it conditionally, and return it on the last line — never scatter multiple `return` statements through the body.
+
+### Formatting
+- Allman braces. Opening { lives on its own line, at the SAME indent as the declaration that owns it. Body is indented exactly one level (4 spaces) deeper.
+- Blank line between the last variable declaration and the first executable statement of a method.
+- Blank line on EACH SIDE of ttsbegin; and EACH SIDE of ttscommit;.
 
 ### Chain of Command (CoC) Authoring
 
@@ -201,12 +171,13 @@ These are language facts, verified against Microsoft Learn (URLs in the Referenc
 6. **Form-nested wrapping** (`formdatasourcestr`, `formdatafieldstr`, `formControlStr`) can only wrap methods that already exist on the base concept. Cannot add new methods this way.
 7. `[Hookable(false)]` blocks CoC AND pre/post handlers. `[Wrappable(false)]` blocks CoC but allows pre/post handlers. `final` methods need `[Wrappable(true)]` to be wrappable.
 8. Wrappers may read/call **protected** members of the augmented class. They CANNOT reach `private` members.
+9. Modifications go between `//++Start` / `//--End` markers and are gated by `AngModParameters::isEnabled(...)` where applicable.
 
 Extension class shape:
 
 ```
 [ExtensionOf(classStr|tableStr|formStr|formDataSourceStr|formDataFieldStr|formControlStr(Target))]
-final class <Target><Prefix>_Extension
+final class <Prefix><Target>_Extension
 {
     // wrappers here
 }
@@ -252,16 +223,14 @@ select [FindOption…] [FieldList from] tableBuffer [index…] [order by / group
 - `forUpdate` may target a specific buffer in a join; other find options stay on the outer select.
 
 **The `in` operator:**
-- Grammar: `where Expression in List` where List = X++ `container`.
+- in takes a container, not Set/List/Map
 - Works with **any primitive type** that fits in a container (`str`, `int`, `int64`, `real`, `enum`, `boolean`, `date`, `utcDateTime`, `RecId`) — NOT enum-only.
-- Does NOT accept `Set`, `List` (collection class), `Map`, table buffer, or another `select`.
-- Empty container = no rows match.
 - Only ONE `in` per `where`. For multiple set filters, AND them: `where a in c1 && b in c2`.
 - Refactor `field == A || field == B || …` to `field in [A, B, …]`.
 
 **Always:**
 - Use a **field list** when you don't need the full row: `select FieldA, FieldB from myTable where …`. Only select the fields you actually need.
-- Use **`firstOnly`** when you expect at most one row. Cannot combine with `next`.
+- Use **`firstOnly`** when you expect at most one row. For "does any row match" checks, use `select firstonly RecId from <buffer> where …;` followed by `if (<buffer>)`. Avoids loading the whole row.
 - Use **`forUpdate`** before any `.update()` / `.delete()` in the same transaction; pair with `ttsbegin` / `ttscommit`.
 - Use **`exists join`** / **`notExists join`** instead of nested `while select` for filter-only joins.
 - If a table is joined purely as a "betweener" to reach another table, select ONLY its RecId to save memory (e.g., `join RecId from reasonTableRef`).
@@ -269,7 +238,7 @@ select [FindOption…] [FieldList from] tableBuffer [index…] [order by / group
 - Prefer **set-based** ops: `RecordInsertList`, `insert_recordset`, `update_recordset`, `delete_from`.
 
 
-❌ WRONG: Slow row-by-row update (generates a separate database call for every single row)
+❌ WRONG: Slow row-by-row update
 ```
 SalesLine salesLine;
 
@@ -286,7 +255,7 @@ while select forUpdate salesLine
 ttscommit;
 ```
 
-✅ CORRECT: Fast set-based update (generates a single SQL update statement)
+✅ CORRECT: Fast set-based update
 ```
 SalesLine salesLine;
 
@@ -319,10 +288,6 @@ ttscommit;
 **Joins:**
 - Only LEFT outer exists (no RIGHT, no `left` keyword). Default values fill non-matching rows — check the joined buffer's `RecId` to distinguish "no match" from "real zero".
 - Join criteria use `where`, not `on` (X++ has no `on`).
-
-**Other:**
-- `index hint` requires `myTable.allowIndexHint(true)` BEFORE the select. `index` (without `hint`) = sort-only request.
-- SQL timeout: 30 min interactive, 3 h batch. Override with `queryTimeout`. Catch `Exception::Timeout` for long-runners.
 
 ---
 
@@ -362,10 +327,52 @@ private boolean validateSendDespatchAdviceConditions(CustPackingSlipJour _custPa
     return isValid;
 }
 ```
-5. New artifacts use the project prefix.
+5. New artifacts must **begin** with the project prefix. NEVER append the prefix at the end of a new artifact. 
+   - ✅ CORRECT: `AngPriceCalcHelper`
+   - ❌ WRONG: `AngPriceCalcHelperAng`
+   - ❌ WRONG: `PriceCalcHelperAng`
 6. Extensions:
-   - **Class augmentation:** `<Prefix><Target>_Extension`. NEVER bare `<Target>_Extension` — too high a collision risk per Microsoft Learn. Example of a properly named class: `AngSalesPackingSlipJournalPost_Extension`
+   - **Class augmentation:** `<Prefix><Target>_Extension`. NEVER bare `<Target>_Extension` — too high a collision risk per Microsoft Learn. Example of a properly named class extension: `AngSalesPackingSlipJournalPost_Extension`
    - **Metadata extension** (table / form / view / EDT / enum extension): `<Target>.Extension<Prefix>`, example of a properly named extension table: `SalesTable.ExtensionAng`
+Example of a properly formatted table extension:
+```
+/// <summary>
+/// Extension class for MCROrderEventTable.
+/// </summary>
+[ExtensionOf(tableStr(MCROrderEventTable))]
+final class AngMCROrderEventTable_Extension
+{
+    private static void changeLog()
+    {
+        //++Start: Work item: 123456 Project: T654321 MOD-O2C-035 Aktualizacja cen na wierszach ZS
+        //Developer: Name Surname Date: 2026-01-28
+        //Initial development
+        //--End: Work item: 123456
+
+        exceptionTextFallThrough(); //get rid of BP warning about empty method
+    }
+
+    /// <summary>
+    /// Determines if the event can be logged.
+    /// </summary>
+    /// <returns>true when the event can be logged; otherwise, false.</returns>
+    protected boolean canLogEvent()
+    {
+        boolean ret = next canLogEvent();
+
+        //++Start: Work item: 123456 Project: T654321 MOD-O2C-035 Aktualizacja cen na wierszach ZS
+        if (    this.MCROrderEventType == MCROrderEventType::AngSalesUpdatedSalesLinePrice
+            &&  AngModParameters::isEnabled(AngModParam_MODO2C035::modId))
+        {
+            ret = MCROrderEventSetup::find().AngSalesUpdateSalesLinePrice;
+        }
+        //--End: Work item: 123456
+
+        return ret;
+    }
+
+}
+```
 7. Use idiomatic method names: `check…`, `exist`, `find`, `validate…`, `parm…`, `initParm…`.
 
 ### Tables
@@ -376,7 +383,7 @@ private boolean validateSendDespatchAdviceConditions(CustPackingSlipJour _custPa
 4. Use **EDTs / enums** instead of primitive field types whenever practical.
 5. Relation names clearly include the related table intent.
 6. Implement standard static methods for lookup patterns where applicable: `checkExist`, `exist`, `find`.
-7. For non-temporary tables, ensure a data movement strategy via a data entity.
+7. Field group name uses the work item's modification ID - <Name>Ang<modId></Name> — for example AngMODS2P7007. The field should store all the fields on that table from the modification.
 
 ### Forms
 
@@ -400,10 +407,41 @@ private boolean validateSendDespatchAdviceConditions(CustPackingSlipJour _custPa
 
 ### Configuration and Legal Entity Control
 
-1. Each project / go-live scope uses a dedicated configuration key strategy.
-2. Define a legal-entity-level enable / disable parameter for each customization.
-3. Apply stable naming for toggle parameters and related field groups.
-4. Enablement logic is explicit and testable.
+1. Each project scope uses a dedicated configuration key strategy.
+2. Configuration key naming and hierarchy. Every modification or interface gets its own configuration key, named Ang<ModId>Key, with ParentKey set to its module's dedicated parent key (e.g. AngGBT). Label points at @Ang:<ModId>. Place the key in the same model as the modification.
+3. Every entry point of a customization (batch service process(), posting handler, button click, etc.) must call AngModParameters::isEnabled(AngModParam_<modId>::modId) as the FIRST check in its pre-run validation, and checkFailed(strFmt("@AngModParameters:ModificationDisabled", AngModParam_<modId>::modId)) on failure. 
+
+Example:
+```
+/// <summary>
+/// Logic executed after packing slip is posted
+/// </summary>
+protected void endPost()
+{
+    next endPost();
+
+    //++Start: Work item: 219544 Project: T207404 MOD-MAG-O2C-028 Zwrot towarów (WZ)
+    if (AngModParameters::isEnabled(AngModParam_MODMAGO2C028::modId))
+    {
+        CustPackingSlipJour custPackingSlipJour = this.parmJournalTable();
+
+        if (custPackingSlipJour)
+        {
+            ReasonTable reasonTable = ReasonTable::find(ReasonTableRef::find(custPackingSlipJour.AngReasonCode).Reason);
+
+            if (reasonTable.AngSalesCorrectionBatchAssignmentSource == AngSalesCorrectionBatchAssignmentSource::NewestBatch)
+            {
+                AngInventJournalTransferCreateFromPackingSlipCorrectionHelper createInventJournalTransferHelper; 
+                
+                createInventJournalTransferHelper = AngInventJournalTransferCreateFromPackingSlipCorrectionHelper::newFromCustPackingSlipJour(custPackingSlipJour);
+                
+                createInventJournalTransferHelper.processInventJournalTransferForPackingSlip();
+            }
+        }
+    }
+    //--End: Work item: 219544
+}
+```
 
 ### Labels and Security
 
@@ -424,18 +462,9 @@ private boolean validateSendDespatchAdviceConditions(CustPackingSlipJour _custPa
 4. Wire privileges into a duty, then a duty into a role. Never directly attach privileges to roles.
 5. Action Menu Items: Create a single privilege granting Delete access (which automatically spans the 4x CRUD). A separate View privilege is not necessary for an action.
 
-### Number Sequences (placeholder — expand with code examples)
-
-1. Reference all sequences from `NumberSeqApplicationModule` or its descendant.
-2. Register new sequences via the `NumberSeqApplicationModule_<Module>` extension.
-3. Resolve via `NumberSeqReference::findReference()`.
-4. Always release the sequence number on form / document cancel.
-
----
-
 ## Documentation and Traceability Templates
 
-### Changleog
+### Changelog
 
 Add this static changelog method after the class declaration to every object with xpp code, so classes, views, tables, forms, data entities etc.
 
@@ -451,6 +480,8 @@ private static void changeLog()
 }
 ```
 
+Multiple work items accumulate in changeLog(), newest at the bottom. Never edit or remove old ones. Append-only history.
+
 ### Method XML Comment Template
 
 Use for public / protected methods.
@@ -459,8 +490,12 @@ Use for public / protected methods.
 /// <summary>
 /// <Business purpose and behavior>.
 /// </summary>
-/// <param name="_paramName">Meaning of parameter.</param>
-/// <returns>Meaning of returned value.</returns>
+/// <param name="_paramName">
+/// Meaning of parameter.
+/// </param>
+/// <returns>
+/// Meaning of returned value.
+/// </returns>
 ```
 
 ### Legacy Code Modification Block
@@ -472,6 +507,30 @@ When modifying older logic, preserve intent history.
 //Developer: <FirstName LastName> Date: <YYYY-MM-DD>
 //<Added or modified code note>
 //--End: Work item: <WorkItemID>
+```
+
+### Inline Change-Log Markers
+
+Every modification inside an existing method gets its own `//++Start` / `//--End` pair tagged with the work item ID. Single-line and multi-line modifications use the same form.
+
+```xpp
+//++Start: Work item: <WorkItemID> Project: <ProjectName>
+<modified code>
+//--End: Work item: <WorkItemID>
+```
+
+- When a later work item replaces a previous modification, comment out the old line(s) with `//>>>>` and bracket the replacement with a fresh `//++Start` / `//--End` for the new work item. Keep the old line as evidence — never delete it.
+- A single method may carry multiple independent //++Start / //--End blocks from different work items. Never merge them, never re-tag an old block with a new work item ID — even if they sit two lines apart. Each modification owns its bracketing markers permanently.
+
+```xpp
+//++Start: Work item: 228652 Project: T228624 Brak zdarzenia ZS
+//>>>>this.AngCancelReasonId = AngSalesCancellationContext::current().getReason();
+
+if (!AngSalesCancellationContext::current().parmHasPickedLines())
+{
+    this.AngCancelReasonId = AngSalesCancellationContext::current().getReason();
+}
+//--End: Work item: 228652
 ```
 
 ## Fast Review Checklist
@@ -493,29 +552,6 @@ Use for rapid technical review.
 13. Any security privilege gap for new entry points?
 14. Any legal-entity enable / disable control missing for scoped customization?
 15. Any BP warnings ignored without explicit approval?
-
----
-
-## Example Prompts
-
-- *Implement work item T06516 for a new table plus data entity using this skill, including changelog and check-in comment draft.*
-- *Review my X++ form extension for naming, mandatory field behavior, and action pane compliance using ANG standards.*
-- *Decide the precise modification spot for this requirement when using CoC and produce a justified implementation plan.*
-- *Generate a pre-check-in quality report for my changes against ANG X++ completion criteria.*
-
----
-
-## How to Add a New Rule (Maintenance)
-
-This skill is designed to be expanded over time. To add a rule:
-
-1. **Pick the right home.**
-   - Language fact (compiler / runtime behavior, MS-documented) → "X++ Language Essentials".
-   - Anegis policy (naming, traceability, configuration choices) → "Implementation Standards by Artifact" or "Hard Rules".
-   - Approach / mindset → "Meta-Principles".
-   - Tool sequence (which MCP tool to call when) → **does NOT belong here**, goes in `copilot-instructions.md` instead.
-2. **Keep rules atomic.** One numbered list item = one rule. Easier to review, easier to delete or revise without disturbing surrounding rules.
-3. **Code examples are encouraged.** Keep them short, self-contained, and BP-clean.
-4. **Update the Fast Review Checklist** if the new rule is something a reviewer should explicitly check.
-
----
+16. Any modified code without `//++Start` / `//--End` markers tagged with a work item ID?
+17. Any replaced code lost without a `//>>>>` supersession marker?
+18. Any boolean/find method with multiple `return` statements instead of a single `ret` variable?
