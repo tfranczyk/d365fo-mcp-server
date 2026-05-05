@@ -243,6 +243,8 @@ const STRATEGY_RULES: readonly StrategyRule[] = [
       'Control names in extensions must be unique across ALL extensions of the same form',
       'Cannot remove or reorder existing controls — only add, hide (Visible=No), or move to different groups',
       'Form extension classes see only public/protected form methods — private methods are inaccessible',
+      'In form extension classes, ALWAYS use `this.` instead of `element.` when referencing form scope.',
+      'If adding a button, if relevant ensure the DataSource property is populated so the framework knows the context.',
     ],
     alternatives: [
       { mechanism: 'CoC on form method', when: 'Need to modify existing form logic (e.g. init, close, active record change)' },
@@ -330,7 +332,7 @@ const STRATEGY_RULES: readonly StrategyRule[] = [
     reasoning:
       'D365FO security follows a strict hierarchy: Menu Item → Privilege → Duty → Role. ' +
       'Custom features need at least a Privilege (grants access to an entry point) and typically a Duty (groups related privileges). ' +
-      'Roles are assigned to users.',
+      'Roles are assigned to users. Roles are assigned to users. For Action Menu Items: create a single privilege granting Delete access (which spans all 4x CRUD). A separate View privilege is unnecessary.',
     risks: [
       'Privileges are per-entry-point (menu item, web content, service) — not per table or field directly',
       'Table permissions inherit via menu item → privilege chain — broken chain = no access',
