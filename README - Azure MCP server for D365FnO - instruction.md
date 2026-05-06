@@ -249,6 +249,23 @@ On your D365FO VM:
 In Azure Storage Explorer, right-click the blob → Properties. With exclusions: **~4–8 GB**. Without exclusions: **~20–40 GB**. If it's only MBs, something is wrong — either the zip is empty or `PackagesLocalDirectory` was completely excluded.
 
 ## C3. Use an appropriate devbox with access to `PackagesLocalDirectory` to run local script `build-platform-metadata-local.ps1`
+
+### C3.0 brace your devbox
+On your VM, in PowerShell (admin mode)
+Install-Module -Name d365fo.tools
+
+and allow for all...
+
+Install-D365SupportingSoftware -Name vscode,python
+if node.js fails so you need to download and install it manually https://nodejs.org/en
+
+go for REPAIR
+
+after successful installation goto `edit the system environment variables', find your path and edit the one for npm to the target folder of your installation, might be C:\Program Files\nodejs\
+
+reopen your terminal as Admin
+
+### C3.1 Proceed with actual deployment
 Run this on a D365FO development box that can read the full `PackagesLocalDirectory` for the current application version.
 
 Do **not** prepare or rely on the repo `.env` file for this step. The script creates its own temporary env file under `.tmp` and points the Node scripts at it via `ENV_FILE`, so `CUSTOM_MODELS`, package paths, label languages, and Azure Blob settings come from the parameters below rather than whatever happens to be in `.env` on the VM.
