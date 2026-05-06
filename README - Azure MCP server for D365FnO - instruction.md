@@ -399,6 +399,16 @@ Copy-Item -Path ".github" -Destination "C:\Repos\" -Recurse
 
 VS 2022 / VS Code walks upward from the `.sln` folder and picks `.github\copilot-instructions.md` for every solution underneath.
 
+## D5. Place Copilot agent skill `ang-xpp-dev`
+Copilot agent skills can live in the repository (`.github\skills`) or in your user profile (`%USERPROFILE%\.copilot\skills`). For this rollout, copy the D365FO skill to the personal location so the same VM/user gets it across all local D365FO repositories:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
+Copy-Item -Path ".github\skills\ang-xpp-dev" -Destination "$env:USERPROFILE\.copilot\skills\" -Recurse -Force
+```
+
+Restart Copilot/VS Code after the first copy, or reload skills if your Copilot client exposes a skills reload command.
+
 ---
 
 # Part E — Wire both MCP servers into Copilot
