@@ -584,8 +584,8 @@ export class BridgeClient extends EventEmitter {
   }
 
   /** Add a value to an enum */
-  async addEnumValue(enumName: string, valueName: string, value: number, label?: string): Promise<BridgeWriteResult> {
-    return this.call<BridgeWriteResult>('addEnumValue', { objectName: enumName, enumValueName: valueName, enumValue: value, label });
+  async addEnumValue(enumName: string, valueName: string, value: number, label?: string, countryRegionCodes?: string): Promise<BridgeWriteResult> {
+    return this.call<BridgeWriteResult>('addEnumValue', { objectName: enumName, enumValueName: valueName, enumValue: value, label, countryRegionCodes });
   }
 
   /** Modify an existing enum value's properties */

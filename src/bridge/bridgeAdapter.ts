@@ -1433,10 +1433,11 @@ export async function bridgeAddEnumValue(
   valueName: string,
   value: number,
   label?: string,
+  countryRegionCodes?: string,
 ): Promise<{ success: boolean; message: string } | null> {
   if (!bridge?.isReady || !bridge.metadataAvailable) return null;
   try {
-    const result = await bridge.addEnumValue(enumName, valueName, value, label);
+    const result = await bridge.addEnumValue(enumName, valueName, value, label, countryRegionCodes);
     return {
       success: result.success,
       message: result.success

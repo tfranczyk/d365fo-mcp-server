@@ -651,7 +651,8 @@ namespace D365MetadataBridge.Protocol
                                 ?? request.GetIntParam("value")
                                 ?? throw new ArgumentException("Missing: enumValue");
                             return _writeService!.AddEnumValue(enumName, valueName, value,
-                                request.GetStringParam("label"));
+                                request.GetStringParam("label"),
+                                request.GetStringParam("countryRegionCodes"));
                         });
 
                     case "modifyenumvalue":
@@ -984,7 +985,7 @@ namespace D365MetadataBridge.Protocol
                                         int.TryParse(ev?.ToString(), out enumVal);
                                     writeResult = _writeService.AddEnumValue(objectName,
                                         S("enumValueName") ?? S("valueName") ?? throw new ArgumentException("Missing: enumValueName"),
-                                        enumVal, S("label"));
+                                        enumVal, S("label"), S("countryRegionCodes"));
                                 }
                                 break;
 

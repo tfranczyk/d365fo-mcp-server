@@ -563,6 +563,7 @@ namespace D365MetadataBridge.Services
                 {
                     var axVal = new AxEnumValue { Name = v.Name, Value = v.Value };
                     if (!string.IsNullOrEmpty(v.Label)) axVal.Label = v.Label;
+                    if (!string.IsNullOrEmpty(v.CountryRegionCodes)) axVal.CountryRegionCodes = v.CountryRegionCodes;
                     axEnum.AddEnumValue(axVal);
                 }
             }
@@ -967,6 +968,7 @@ namespace D365MetadataBridge.Services
                 {
                     var axVal = new AxEnumValue { Name = v.Name, Value = v.Value };
                     if (!string.IsNullOrEmpty(v.Label)) axVal.Label = v.Label;
+                    if (!string.IsNullOrEmpty(v.CountryRegionCodes)) axVal.CountryRegionCodes = v.CountryRegionCodes;
                     axExt.EnumValues.Add(axVal);
                 }
             }
@@ -1972,7 +1974,7 @@ namespace D365MetadataBridge.Services
         // ========================
 
         /// <summary>Adds a value to an enum.</summary>
-        public object AddEnumValue(string enumName, string valueName, int value, string? label)
+        public object AddEnumValue(string enumName, string valueName, int value, string? label, string? countryRegionCodes = null)
         {
             var axEnum = _provider.Enums.Read(enumName)
                 ?? throw new ArgumentException($"Enum '{enumName}' not found");
@@ -1980,6 +1982,7 @@ namespace D365MetadataBridge.Services
 
             var axVal = new AxEnumValue { Name = valueName, Value = value };
             if (!string.IsNullOrEmpty(label)) axVal.Label = label;
+            if (!string.IsNullOrEmpty(countryRegionCodes)) axVal.CountryRegionCodes = countryRegionCodes;
             axEnum.AddEnumValue(axVal);
 
             ((IMetaEnumProvider)_provider.Enums).Update(axEnum, msi);
@@ -3436,5 +3439,8 @@ namespace D365MetadataBridge.Services
 
         [System.Text.Json.Serialization.JsonPropertyName("label")]
         public string? Label { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("countryRegionCodes")]
+        public string? CountryRegionCodes { get; set; }
     }
 }

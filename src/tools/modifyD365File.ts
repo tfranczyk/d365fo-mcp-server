@@ -167,6 +167,10 @@ const ModifyD365FileArgsSchema = z.object({
     'If omitted for add-enum-value, the next available value is assigned automatically. ' +
     'Use with modify-enum-value to change the integer value (rare — may break existing data).'
   ),
+  enumValueCountryRegionCodes: z.string().optional().describe(
+    'ISO country/region codes for the enum value, comma-separated (e.g. "CZ", "CZ,SK"). ' +
+    'Used with add-enum-value to restrict the value to specific locales.'
+  ),
 
   // For add-display-method
   displayMethodReturnEdt: z.string().optional().describe(
@@ -773,6 +777,7 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
             (args as any).enumValueName,
             (args as any).enumValue ?? 0,
             (args as any).enumValueLabel,
+            (args as any).enumValueCountryRegionCodes,
           );
         }
         break;
