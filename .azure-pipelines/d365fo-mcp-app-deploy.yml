@@ -13,12 +13,12 @@ resources:
   repositories:
     - repository: mcpServer
       type: github
-      endpoint: tfranczyk_d365fo-mcp-server
+      endpoint: github.com_tfranczyk2
       name: tfranczyk/d365fo-mcp-server
       ref: refs/heads/main
 
 variables:
-  - group: xpp-mcp-server-config
+  - group: xpp-mcp-server-config2
   - name: nodeVersion
     value: '24.x'
   - name: MCP_SERVER_PATH
