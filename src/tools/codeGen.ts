@@ -48,6 +48,12 @@ const CodeGenArgsSchema = z.object({
     ),
 });
 
+const CHANGELOG_METHOD = `
+    private static void changeLog()
+    {
+        // TODO: Add change log
+    }`;
+
 // Templates for NEW elements: (name already includes prefix)
 const newElementTemplates: Record<string, (name: string) => string> = {
   class: (name) => `
@@ -56,6 +62,8 @@ const newElementTemplates: Record<string, (name: string) => string> = {
 /// </summary>
 public class ${name}
 {
+    ${CHANGELOG_METHOD}
+
     public void run()
     {
         // TODO: Implement
@@ -68,6 +76,8 @@ public class ${name}
 /// </summary>
 internal final class ${name}
 {
+    ${CHANGELOG_METHOD}
+
     /// <summary>
     /// Entry point
     /// </summary>
@@ -202,6 +212,8 @@ function formHandlerTemplate(baseName: string, prefix: string): string {
 [ExtensionOf(formStr(${baseName}))]
 final class ${className}
 {
+    ${CHANGELOG_METHOD}
+
     /// <summary>
     /// Form initialization
     /// </summary>
@@ -242,6 +254,8 @@ function tableExtensionTemplate(baseName: string, prefix: string): string {
 [ExtensionOf(tableStr(${baseName}))]
 final class ${className}
 {
+    ${CHANGELOG_METHOD}
+
     /// <summary>
     /// Validate write
     /// </summary>
@@ -291,6 +305,8 @@ function classExtensionTemplate(baseName: string, prefix: string): string {
 [ExtensionOf(classStr(${baseName}))]
 final class ${className}
 {
+    ${CHANGELOG_METHOD}
+
     // ⚠️  DO NOT add CoC methods before checking the original signature:
     //     get_method_signature("${baseName}", "methodName")
     //
@@ -326,6 +342,8 @@ function formDataSourceExtensionTemplate(formName: string, prefix: string, dataS
 [ExtensionOf(formDataSourceStr(${formName}, ${dsName}))]
 final class ${className}
 {
+    ${CHANGELOG_METHOD}
+    
     /// <summary>
     /// Data source initialization — runs after the form and data source are ready.
     /// Call next init() first to preserve standard behaviour.
@@ -468,18 +486,13 @@ const extensionTemplates: Record<string, (baseName: string, prefix: string) => s
 function sysOperationTemplate(name: string, serviceMethod = 'process'): string {
   return `
 // ── 1. DataContract ─────────────────────────────────────────────────────
+/// <summary>
+/// ${name} contract class
+/// </summary>
 [DataContractAttribute]
 public final class ${name}DataContract
 {
-    TransDate   transDate;
-
-    [DataMemberAttribute('TransDate'),
-     SysOperationLabelAttribute(literalStr("Transaction date"))]
-    public TransDate parmTransDate(TransDate _transDate = transDate)
-    {
-        transDate = _transDate;
-        return transDate;
-    }
+    ${CHANGELOG_METHOD}
 }
 
 // ── 2. Controller ────────────────────────────────────────────────────────
@@ -489,26 +502,55 @@ public final class ${name}DataContract
 /// </summary>
 class ${name}Controller extends SysOperationServiceController
 {
+    ${CHANGELOG_METHOD}
+    
     /// <summary>
     /// Wires up the service class and method. The parent class SysOperationServiceController
     /// handles dialog building, pack/unpack, and execution mode automatically.
     /// </summary>
     protected void new()
     {
-        super();
-        this.parmClassName(classStr(${name}Service));
-        this.parmMethodName(methodStr(${name}Service, ${serviceMethod}));
-        this.parmExecutionMode(SysOperationExecutionMode::Synchronous);
+        super(classStr(${name}Service), methodStr(${name}Service, ${serviceMethod}), SysOperationExecutionMode::Synchronous);
     }
 
-    protected ClassDescription defaultCaption()
+    /// <summary>
+    /// Describes the class
+    /// </summary>
+    /// <returns>
+    /// Label describing the function of the class
+    /// </returns>
+    public ClassDescription defaultCaption()
     {
         return "${name}";
     }
 
+    /// <summary>
+    /// Constructs a new instance of the <c>${name}Controller</c> class
+    /// </summary>
+    /// <param name = "_executionMode">
+    /// Specifies the execution mode
+    /// </param>
+    /// <returns>
+    /// An instance of <c>${name}Controller</c>
+    /// </returns>
+    public static ${name}Controller construct(SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous)
+    {
+        ${name}Controller controller;
+        controller = new ${name}Controller();
+        controller.parmExecutionMode(_executionMode);
+        return controller;
+    }
+
+    /// <summary>
+    /// Main method for ${name}
+    /// </summary>
+    /// <param name = "_args">
+    /// An instance of the <c>Args</c> class
+    /// </param>
     public static void main(Args _args)
     {
-        ${name}Controller controller = new ${name}Controller();
+        ${name}Controller controller;
+        controller = ${name}Controller::construct();
         controller.parmArgs(_args);
         controller.startOperation();
     }
@@ -516,22 +558,21 @@ class ${name}Controller extends SysOperationServiceController
 
 // ── 3. Service ───────────────────────────────────────────────────────────
 /// <summary>
-/// Service class for ${name}.
+/// ${name} service class
 /// </summary>
 class ${name}Service extends SysOperationServiceBase
 {
+    ${CHANGELOG_METHOD}
+
     /// <summary>
-    /// Business logic entry point called by the controller.
+    /// Process for running the job
     /// </summary>
-    [SysEntryPointAttribute(true)]
-    public void ${serviceMethod}(${name}DataContract _contract)
+    /// <param name = "_contract">
+    /// ${name} contract class
+    /// </param>
+    public void ${serviceMethod}(${name}Contract _contract)
     {
-        TransDate transDate = _contract.parmTransDate();
-
-        // TODO: Implement business logic
-        ttsbegin;
-
-        ttscommit;
+        //Do something
     }
 }`;
 }

@@ -142,10 +142,12 @@ export const generateSmartTableTool: Tool = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'ALWAYS pass ["find", "exist"] when the user asks for those methods. ' +
-          'Methods are embedded directly in the generated XML. ' +
-          'Supported values: "find", "exist". ' +
-          '⛔ NEVER omit this and then call modify_d365fo_file to add methods afterwards — ' +
+          'Standard table methods to embed in the generated XML. ' +
+          'DEFAULT (when omitted): all 6 methods — changeLog, find, findRecId, exist, checkExist, txtNotExist. ' +
+          'Pass [] to skip method generation entirely. ' +
+          'Pass a subset (e.g. ["find","exist"]) for partial generation. ' +
+          'Supported names: "changeLog", "find", "findRecId", "exist", "checkExist", "txtNotExist". ' +
+          '⛔ NEVER omit and then call modify_d365fo_file to add methods afterwards — ' +
           'modify_d365fo_file CANNOT write files on Azure/Linux.',
       },
     },
@@ -561,61 +563,159 @@ export async function handleGenerateSmartTable(
     console.log(`[generateSmartTable] Applied naming: ${name} → ${finalName}`);
   }
 
-  // Generate standard methods (find, exist) based on primary key fields
+  // Generate standard table methods. Defaults to all 6 (changeLog, find, findRecId,
+  // exist, checkExist, txtNotExist) Pass methods=[]
+  // to skip, or a subset like methods=["find","exist"] for a partial set.
   const generatedMethods: Array<{ name: string; source: string }> = [];
-  if (requestedMethods && requestedMethods.length > 0) {
-    // Determine primary key fields from unique non-RecId index, or first non-RecId fields
+  const ALL_STANDARD_METHODS = ['changeLog', 'find', 'findRecId', 'exist', 'checkExist', 'txtNotExist'];
+  const methodsToEmit = (requestedMethods && requestedMethods.length > 0) ? requestedMethods : ALL_STANDARD_METHODS;
+
+  if (methodsToEmit.length > 0) {
     const uniqueIdx = indexes.find(idx => idx.unique && !idx.fields.every(f => f === 'RecId'));
     const pkFields = uniqueIdx
       ? uniqueIdx.fields.filter(f => f !== 'RecId')
       : fields.filter(f => f.name !== 'RecId').slice(0, 1).map(f => f.name);
 
-    const buildParams = (withType: boolean) =>
-      pkFields.map(f => {
-        const edt = fields.find(fld => fld.name === f)?.edt || 'str';
-        return withType ? `${edt} _${f.charAt(0).toLowerCase() + f.slice(1)}` : `_${f.charAt(0).toLowerCase() + f.slice(1)}`;
-      }).join(', ');
+    const pretty = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+    const varName = pretty(finalName);
+    const labelFile = objectPrefix; // label file = project prefix (e.g. "Ang")
+    const today = new Date().toISOString().slice(0, 10);
 
-    const whereClause = pkFields
-      .map(f => `${finalName}.${f} == _${f.charAt(0).toLowerCase() + f.slice(1)}`)
-      .join('\n            && ');
+    const paramTyped = pkFields
+      .map(f => `${fields.find(fld => fld.name === f)?.edt || 'str'} _${pretty(f)}`)
+      .join(', ');
+    const paramAnd   = pkFields.map(f => `_${pretty(f)}`).join(' && ');
+    const paramComma = pkFields.map(f => `_${pretty(f)}`).join(', ');
+    const paramDocs  = pkFields.map(f => `/// <param name = "_${pretty(f)}">a ${pretty(f)}</param>`);
+    const whereVar   = pkFields.map(f => `${varName}.${f} == _${pretty(f)}`).join('\n                && ');
+    const whereTable = pkFields.map(f => `${finalName}.${f} == _${pretty(f)}`).join('\n                  && ');
 
-    for (const methodName of requestedMethods) {
-      if (methodName === 'find') {
-        const params = buildParams(true);
-        generatedMethods.push({
-          name: 'find',
-          source: [
-            `public static ${finalName} find(${params}, boolean _forupdate = false)`,
-            `{`,
-            `    ${finalName}  local;`,
-            ``,
-            `    if (_forupdate)`,
-            `    {`,
-            `        local.selectForUpdate(_forupdate);`,
-            `    }`,
-            ``,
-            `    select firstOnly local`,
-            `        where ${whereClause};`,
-            ``,
-            `    return local;`,
-            `}`,
-          ].join('\n'),
-        });
-      } else if (methodName === 'exist') {
-        const params = buildParams(true);
-        generatedMethods.push({
-          name: 'exist',
-          source: [
-            `public static boolean exist(${params})`,
-            `{`,
-            `    return (select firstOnly RecId from ${finalName}`,
-            `                where ${whereClause}).RecId != 0;`,
-            `}`,
-          ].join('\n'),
-        });
+    const STANDARD_METHODS: Record<string, () => string> = {
+      changeLog: () => [
+        `private void changeLog()`,
+        `{`,
+        `    //++Start: Work item:  Project: `,
+        `    //Developer:  Date: ${today}`,
+        `    //Initial development`,
+        `    //--End: Work item: `,
+        ``,
+        `    exceptionTextFallThrough(); //get rid of BP warning about empty method`,
+        `}`,
+      ].join('\n'),
+
+      find: () => [
+        `/// <summary>`,
+        `/// Find record in the table <t>${finalName}</t>`,
+        `/// </summary>`,
+        ...paramDocs,
+        `/// <param name = "_forUpdate">if its updatable</param>`,
+        `/// <param name = "_concurrencyModel">set concurrency model</param>`,
+        `/// <returns>a table <t>${finalName}</t></returns>`,
+        `public static ${finalName} find(${paramTyped}, boolean _forUpdate = false, ConcurrencyModel _concurrencyModel = ConcurrencyModel::Auto)`,
+        `{`,
+        `    ${finalName} ${varName};`,
+        ``,
+        `    if (${paramAnd})`,
+        `    {`,
+        `        ${varName}.selectForUpdate(_forUpdate);`,
+        ``,
+        `        if (_concurrencyModel != ConcurrencyModel::Auto)`,
+        `        {`,
+        `            ${varName}.concurrencyModel(_concurrencyModel);`,
+        `        }`,
+        ``,
+        `        select firstonly ${varName}`,
+        `            where ${whereVar};`,
+        `    }`,
+        ``,
+        `    return ${varName};`,
+        `}`,
+      ].join('\n'),
+
+      findRecId: () => [
+        `/// <summary>`,
+        `/// Find record in the table <t>${finalName}</t>`,
+        `/// </summary>`,
+        `/// <param name = "_recId">the record id</param>`,
+        `/// <param name = "_forUpdate">if its updatable</param>`,
+        `/// <returns>a table <t>${finalName}</t></returns>`,
+        `public static ${finalName} findRecId(RefRecId _recId, boolean _forUpdate = false)`,
+        `{`,
+        `    ${finalName} ${varName};`,
+        ``,
+        `    if (_recId)`,
+        `    {`,
+        `        ${varName}.selectForUpdate(_forUpdate);`,
+        ``,
+        `        select firstonly ${varName}`,
+        `            where ${varName}.RecId == _recId;`,
+        `    }`,
+        ``,
+        `    return ${varName};`,
+        `}`,
+      ].join('\n'),
+
+      exist: () => [
+        `/// <summary>`,
+        `/// Check if exists a record in the table <t>${finalName}</t> with the given parameters`,
+        `/// </summary>`,
+        ...paramDocs,
+        `/// <returns>`,
+        `/// True if record exists, otherwise false.`,
+        `/// </returns>`,
+        `public static boolean exist(${paramTyped})`,
+        `{`,
+        `    boolean res;`,
+        ``,
+        `    if (${paramAnd})`,
+        `    {`,
+        `        res = (select firstonly RecId from ${finalName}`,
+        `                where ${whereTable}).RecId != 0;`,
+        `    }`,
+        ``,
+        `    return res;`,
+        `}`,
+      ].join('\n'),
+
+      checkExist: () => [
+        `/// <summary>`,
+        `/// Check if exists a record in the table <t>${finalName}</t> with the given parameters and give a warning if not found`,
+        `/// </summary>`,
+        ...paramDocs,
+        `/// <returns>if exists a record in the table <t>${finalName}</t> with the given parameters</returns>`,
+        `public static boolean checkExist(${paramTyped})`,
+        `{`,
+        `    if ((${paramAnd})`,
+        `        && (!${finalName}::exist(${paramComma})))`,
+        `    {`,
+        `        return checkFailed(strFmt(${finalName}::txtNotExist(), ${paramComma}));`,
+        `    }`,
+        ``,
+        `    return true;`,
+        `}`,
+      ].join('\n'),
+
+      txtNotExist: () => [
+        `/// <summary>`,
+        `/// Not found label id`,
+        `/// </summary>`,
+        `/// <returns>not found msg template</returns>`,
+        `public static str txtNotExist()`,
+        `{`,
+        `    return "@${labelFile}:RowNotExists";`,
+        `}`,
+      ].join('\n'),
+    };
+
+    for (const methodName of methodsToEmit) {
+      const generator = STANDARD_METHODS[methodName];
+      if (generator) {
+        generatedMethods.push({ name: methodName, source: generator() });
+      } else {
+        console.warn(`[generateSmartTable] Unknown method '${methodName}' — skipping`);
       }
     }
+
     if (generatedMethods.length > 0) {
       console.log(`[generateSmartTable] Generated methods: ${generatedMethods.map(m => m.name).join(', ')}`);
     }
@@ -1066,7 +1166,7 @@ function suggestEdtFromFieldName(fieldName: string): string {
   if (nameLower.includes('percent') || nameLower.includes('pct')) return 'Percent';
   if (nameLower.includes('status')) return 'NoYesId';
   if (nameLower.includes('enabled') || nameLower.includes('active') || nameLower.includes('flag')) return 'NoYesId';
-  if (nameLower.includes('id') && !nameLower.includes('recid')) return 'RefRecId';
+  if (nameLower.endsWith('recid')) return 'RefRecId';
 
   // Default to string
   return 'String255';
