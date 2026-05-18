@@ -398,8 +398,8 @@ plain-language explanation plus a corrective action — no symbol-index access n
 it works in both Azure read-only and local modes.
 
 **When to call:** Whenever the compiler Output window, Error List, or runtime infolog shows
-an unfamiliar error. Rule 22 in `copilot-instructions.md` mandates calling this tool
-**before guessing a fix.**
+an unfamiliar error. The system instructions mandate calling this tool **before guessing
+a fix** (see `xpp_system_instructions` MCP prompt / `src/prompts/systemInstructions.ts`).
 
 **Parameters:**
 | Parameter | Required | Description |

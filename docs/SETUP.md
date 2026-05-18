@@ -75,8 +75,10 @@ C:\source\repos\                   ← parent folder (common ancestor of all sol
 Copy-Item -Path ".github" -Destination "C:\source\repos\" -Recurse
 ```
 
-GitHub Copilot automatically picks up `copilot-instructions.md` and uses it to give
-the AI the right D365FO context for every conversation.
+GitHub Copilot automatically picks up `copilot-instructions.md` as a bootstrap layer.
+It contains minimal rules (tool mapping, key constraints, terminal prohibition) that apply
+before the MCP server connects. The full X++ development instructions are delivered at
+runtime via the MCP prompt `xpp_system_instructions` (defined in `src/prompts/systemInstructions.ts`).
 
 ---
 

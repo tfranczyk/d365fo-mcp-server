@@ -169,7 +169,8 @@ See [Scenario F in SETUP.md](SETUP.md#scenario-f-multiple-instances--one-machine
 
 ## Step 4 — Place copilot-instructions.md
 
-Copy the instruction file so Copilot knows D365FO workflow rules:
+Copy the bootstrap instruction file so Copilot has minimal D365FO context even before
+the MCP server connects:
 
 ```powershell
 # Place .github in a parent folder shared by all D365FO solutions:
@@ -178,6 +179,11 @@ Copy-Item -Path ".github" -Destination "C:\source\repos\" -Recurse
 
 VS 2022 searches for `.github\copilot-instructions.md` upward from the `.sln` folder —
 one copy in a common parent covers all solutions underneath.
+
+> **Note:** This file is intentionally small (~50 lines). The complete X++ rules, query
+> grammar, and workflow details are delivered at runtime via the MCP prompt
+> `xpp_system_instructions`. The bootstrap file only ensures correct tool routing if the
+> MCP server hasn't connected yet.
 
 ---
 
