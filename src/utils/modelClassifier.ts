@@ -182,17 +182,33 @@ export function applyObjectPrefix(objectName: string, prefix: string): string {
     ? rawEnvPrefix                                         // keep "XY_" as-is
     : prefix.charAt(0).toUpperCase() + prefix.slice(1);   // normalize PascalCase
 
-  // SPECIAL CASE A: Dot-notation extension elements — BaseElement.PrefixExtension
-  // For table/form/EDT/enum extensions: "CustTable.XyExtension", "HCMWorker.ContosoExtension"
-  // The suffix after the dot is always {ExtensionInfix}Extension.
-  if (objectName.includes('.') && objectName.toLowerCase().endsWith('extension')) {
+  // SPECIAL CASE A: Dot-notation extension elements — BaseElement.Suffix
+  // Visual Studio names extensions as BaseObject.ModelName (e.g. SalesOrderHeaderV4Entity.Contoso).
+  // Covers three sub-cases:
+  //   A1: suffix already starts with the extension infix → return as-is (no double-prefix)
+  //       e.g. "CustTable.ConExtension" with infix "Con" → "CustTable.ConExtension"
+  //   A2: suffix ends with "extension" but has a different infix → normalize to {infix}Extension
+  //       e.g. "CustTable.OtherExtension" with infix "Con" → "CustTable.ConExtension"
+  //   A3: suffix is the model name as VS generates it → return as-is
+  //       e.g. "SalesOrderHeaderV4Entity.Contoso" → "SalesOrderHeaderV4Entity.Contoso"
+  if (objectName.includes('.')) {
     const dotIdx = objectName.lastIndexOf('.');
-    const basePart = objectName.slice(0, dotIdx);    // e.g., "CustTable"
-    const correctSuffix = `${extensionInfix}Extension`;
-    // Always return the correctly-cased suffix — never preserve the original casing.
-    // Without this, "VendTrans.CTSOExtension" with EXTENSION_PREFIX=CTSO_ would not be
-    // normalized to "VendTrans.CtsoExtension".
-    return `${basePart}.${correctSuffix}`;
+    const basePart = objectName.slice(0, dotIdx);
+    const suffixPart = objectName.slice(dotIdx + 1);
+
+    // A1: already prefixed
+    if (suffixPart.toLowerCase().startsWith(extensionInfix.toLowerCase())) {
+      return objectName;
+    }
+
+    // A2: ends with "extension" — normalize casing of the infix
+    if (suffixPart.toLowerCase().endsWith('extension')) {
+      const correctSuffix = `${extensionInfix}Extension`;
+      return `${basePart}.${correctSuffix}`;
+    }
+
+    // A3: caller-supplied suffix (e.g. model name) — return as-is
+    return objectName;
   }
 
   // SPECIAL CASE B: Extension classes — extension infix goes BEFORE "_Extension"
