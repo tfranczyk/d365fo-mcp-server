@@ -447,7 +447,7 @@ protected void endPost()
 
 **Labels:**
 1. Keep labels in label files.
-2. Label file ID aligns with model name.
+2. Label file ID uses the project prefix, not the model name. Anegis convention: cross-cutting labels live in `Ang.label.txt` (referenced as `@Ang:LabelId`). 
 3. Label IDs describe **meaning**, not the model: ✅ `CustomerName` ❌ `MyModelCustomerName`.
 4. When adding a field whose EDT already has a label, do **NOT** set a label on the field — it inherits from the EDT. Set a field label only when deliberately overriding.
 5. NEVER reference a label in code before creating it in the label file.

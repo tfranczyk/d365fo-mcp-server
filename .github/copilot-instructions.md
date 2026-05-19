@@ -103,6 +103,26 @@ CORRECT (always, immediately):
 
 If `modify_d365fo_file` itself errors → STOP and report. Do NOT try PowerShell.
 
+## ⛔ Tables and Forms — Smart Tools Only
+
+NEVER call `create_d365fo_file(objectType="table" | "form", properties={...})`.
+Tables and forms have structural requirements (standard methods, PrimaryIndex,
+ClusteredIndex, CacheLookup, TitleFields, system field groups) that ONLY
+`generate_smart_table` / `generate_smart_form` produce. Bare `create_d365fo_file`
+emits a structurally incomplete file that LOOKS like it succeeded.
+
+✅ generate_smart_table(name="Tickets", fieldsHint="TicketId, Description, Price")
+❌ create_d365fo_file(objectType="table", properties={ fields: [...] })
+
+`create_d365fo_file` is allowed for tables/forms ONLY when forwarding XML that
+`generate_smart_table` / `generate_smart_form` already returned (Azure/Linux path).
+
+---
+
+`⛔ DO NOT edit the XML before passing it to create_d365fo_file.`,
+`   If the name/prefix or an EDT looks wrong, call generate_smart_table AGAIN with a corrected modelName or fieldsHint.`,
+`   Hand-editing silently strips indexes, field groups, and methods.`
+
 ---
 
 ## Tool Routing — Request → Tool
@@ -111,6 +131,8 @@ If `modify_d365fo_file` itself errors → STOP and report. Do NOT try PowerShell
 |---|---|
 | Edit existing object | `modify_d365fo_file` |
 | Create new object | `create_d365fo_file` |
+| Create new TABLE | `generate_smart_table` (NEVER `create_d365fo_file` for tables) |
+| Create new FORM  | `generate_smart_form` (NEVER `create_d365fo_file` for forms)   |
 | Search | `search`, `batch_search` |
 | Read class/table/form/report | `get_class_info`, `get_table_info`, `get_form_info`, `get_report_info` |
 | Where is X used? | `find_references(targetName)` |
@@ -122,7 +144,6 @@ If `modify_d365fo_file` itself errors → STOP and report. Do NOT try PowerShell
 | Create SSRS report | `generate_smart_report(name, fieldsHint, ...)` |
 | Diagnose X++ error | `get_d365fo_error_help(errorText)` — never guess |
 | X++ knowledge / patterns | `get_xpp_knowledge(topic)` → `analyze_code_patterns(scenario)` |
-| Create table/form | `generate_smart_table` / `generate_smart_form` |
 | Best practices / BP check | `run_bp_check` (NEVER manually iterate `get_method_source`) |
 | Build | `build_d365fo_project` (only on explicit user request) |
 | Sync DB | `trigger_db_sync` |
@@ -257,12 +278,22 @@ The X++ rules behind these recipes (CoC authoring, extension naming, when to use
 
 NEVER delete a method without `find_references` first. NEVER guess bodies from signatures.
 
+### Recipe discipline (applies to every recipe below)
+
+Before any `create_d365fo_file` call, the corresponding "what's already there" call MUST run:
+- Table extension → `get_table_extension_info(table)` first
+- Form extension → `get_form_info(form)` first
+- CoC class extension → `find_coc_extensions(class)` first
+- New label → `search_labels(query)` first
+
+Skipping the check = re-doing work that already exists. NEVER skip.
+
 ### CoC Class Extension
 
 ```
 1. analyze_extension_points(target)
 2. get_method_signature(target, method, includeCocTemplate: true)
-3. create_d365fo_file(objectType="class-extension", objectName="<Target><Prefix>_Extension", ...)
+3. create_d365fo_file(objectType="class-extension", objectName="<Prefix><Target>_Extension", ...)
 4. modify_d365fo_file(operation="add-method", sourceCode="<CoC skeleton>")
 ```
 
@@ -272,7 +303,7 @@ Extension naming: see SKILL.md → Naming and Conventions.
 
 ```
 1. get_table_extension_info(table)             → existing extensions
-2. create_d365fo_file(objectType="table-extension", objectName="<Table>.<Prefix>Extension", addToProject=true)
+2. create_d365fo_file(objectType="table-extension", objectName="<Table>.Extension<Prefix>", addToProject=true)
 3. modify_d365fo_file(operation="add-field" | "add-index" | "add-field-group" | ...)
 ```
 
@@ -280,7 +311,7 @@ Extension naming: see SKILL.md → Naming and Conventions.
 
 ```
 1. get_form_info(form, searchControl="TabName")  → exact control names
-2. create_d365fo_file(objectType="form-extension", objectName="<Form>.<Prefix>Extension", addToProject=true)
+2. create_d365fo_file(objectType="form-extension", objectName="<Form>.Extension<Prefix>", addToProject=true)
 3. modify_d365fo_file(operation="add-control", parentControl="Tab", controlDataField="Field", ...)
 ```
 
