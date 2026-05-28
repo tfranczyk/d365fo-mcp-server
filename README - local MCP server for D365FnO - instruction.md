@@ -10,76 +10,146 @@ D365FnO MCP will **not**:
 1) answer a question how does the process work in D365FnO.
 
 # Instruction
-1) On your VM, in PowerShell (admin mode)
 
-`Install-Module -Name d365fo.tools`
+## Part A — Build and run the server (all clients)
 
-and allow for all...
+1. On your VM, in PowerShell (admin mode):
 
-2) `Install-D365SupportingSoftware -Name vscode,python`
+   `Install-Module -Name d365fo.tools`
 
->if node.js fails so you need to download and install it manually https://nodejs.org/en
+   and allow for all...
 
-> go for REPAIR 
+2. `Install-D365SupportingSoftware -Name vscode,python`
 
-3) after successful installation goto `edit the system environment variables', find your path and edit the one for npm to the target folder of your installation, might be C:\Program Files\nodejs\
+   > If node.js fails, download and install it manually from https://nodejs.org/en and choose **Repair**.
 
-4) reopen your terminal as Admin
+3. After successful installation go to *Edit the system environment variables*, find your `Path` and point the npm entry at your install folder, e.g. `C:\Program Files\nodejs\`.
 
-5) navigate to the path again, run `npm install`
+4. Reopen your terminal as Admin.
 
-> check \bridge\D365MetadataBridge\Program.cs against the _packagesPath
+5. Navigate to the repo path and run `npm install`.
 
-6) navigate to `bridge\D365MetadataBridge` and run `dotnet build -c Release -p:D365BinPath="J:\AosService\PackagesLocalDirectory\bin`
+   > Check `\bridge\D365MetadataBridge\Program.cs` against the `_packagesPath`.
 
-7) copy `.env.example` with:
+6. Navigate to `bridge\D365MetadataBridge` and run:
 
-    cd ..\..
-    copy .env.example .env
+   `dotnet build -c Release -p:D365BinPath="J:\AosService\PackagesLocalDirectory\bin"`
 
-7) amend `.env` and set PACKAGES_PATH, CUSTOM_MODELS, LABEL_LANGUAGES
+7. Copy `.env.example`:
 
-7) run `npm run extract-metadata` and wait. It takes ~15mins.
+   ```
+   cd ..\..
+   copy .env.example .env
+   ```
 
-7) run `npm run build-database` and wait less than above.
+8. Amend `.env` and set `PACKAGES_PATH`, `CUSTOM_MODELS`, `LABEL_LANGUAGES`.
 
-7) run `npm run build`, just a second
+9. Run `npm run extract-metadata` and wait (~15 min).
 
-7) run `copy .mcp.json.example .mcp.json`
+10. Run `npm run build-database` and wait (less than above).
 
-7) Go to github.com/settings/copilot/features → enable MCP servers in Copilot
+11. Run `npm run build` (a second).
 
-7) In Visual Studio: Tools → Options → GitHub → Copilot → enable "Enable MCP server integration in agent mode"
-Open Copilot Chat → switch to Agent Mode (not Ask or Edit)
+12. Open a dedicated new terminal and load the machine + user `Path`:
 
-7) amend `.mcp.json` to 
+    `$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")`
 
-```
-{
-    "servers": {
-      "d365fo-mcp-tools": {
-        "url": "http://localhost:8080/mcp/"
-      }
+13. Run `npm run dev` in that dedicated window (preferably PowerShell). **Keep it open** — it serves the MCP over HTTP at `http://localhost:8080/mcp/`.
+
+Now wire the running server into your editor: **Copilot → Part B**, **Claude Code → Part Z**. You can do both.
+
+## Part B — Wire into GitHub Copilot
+
+14. `copy .mcp.json.example .mcp.json`
+
+15. Go to github.com/settings/copilot/features → enable **MCP servers in Copilot**.
+
+16. In Visual Studio: Tools → Options → GitHub → Copilot → enable "Enable MCP server integration in agent mode". Open Copilot Chat → switch to **Agent Mode** (not Ask or Edit).
+
+17. Amend `.mcp.json` to:
+
+    ```
+    {
+        "servers": {
+          "d365fo-mcp-tools": {
+            "url": "http://localhost:8080/mcp/"
+          }
+        }
     }
-}
+    ```
+
+18. Run `Copy-Item -Path ".\.mcp.json" -Destination "$env:USERPROFILE\.mcp.json" -Force`
+
+19. Place `.github` in a parent folder shared by all D365FO solutions:
+
+    `Copy-Item -Path ".github" -Destination "C:\Repos\" -Recurse`
+
+    > VS 2022 / VS Code search for `.github\copilot-instructions.md` upward from the `.sln` folder — one copy in a common parent covers all solutions underneath. CHECK THE PATH.
+
+20. If you did the majority of the above through VS Code, restart it. Use `CTRL+SHIFT+N` for a new workspace. Open the folder with the whole repository, e.g. `C:\Repos\D365FO-Intax`.
+
+    > The dedicated `npm run dev` window must remain open.
+
+21. In VS Code chat, go to `Settings / Agent Customizations / MCP servers`, press `+`, select `HTTP`, paste `http://localhost:8080/mcp/`, choose **Global** — done. You should see your server under `MCP Servers - installed`.
+
+22. **Time to test!** Open a new chat and ask `What tables contain a "CustAccount" field?`. You should see something that points directly to MCP usage.
+
+---
+
+# Part C — Claude Code (local MCP)
+
+This is the Claude Code equivalent of **Part B** (Copilot). Do **Part A** first and keep the `npm run dev` window open (step 13) — the server is served over HTTP at `http://localhost:8080/mcp/`, the same endpoint Copilot uses.
+
+## C1. Wire the local server into Claude Code
+Register the running HTTP server globally (user scope = available in every folder you open):
+
+```powershell
+npm install -g @anthropic-ai/claude-code
+claude mcp add --transport http --scope user d365fo-mcp-tools http://localhost:8080/mcp/
 ```
 
-16) run `Copy-Item -Path ".\.mcp.json" -Destination "$env:USERPROFILE\.mcp.json" -Force`
+Verify it is registered:
 
-16) open a dedicated new terminal, run `$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")`
+```powershell
+claude mcp list
+```
 
-16) run `npm run dev` in the dedicated window (preferably PowerShell). Keep it opened.
+On first use Claude Code prompts you to **trust** the server — approve it. No separate "enable MCP" toggle is needed (unlike Copilot in step 15).
 
-16) in the previous terminal place .github in a parent folder shared by all D365FO solutions `Copy-Item -Path ".github" -Destination "C:\Repos\" -Recurse`
-> VS 2022 searches for .github\copilot-instructions.md upward from the .sln folder — one copy in a common parent covers all solutions underneath. CHECK THE PATH.
+> Prefer editing config by hand? The same entry can be added to `%USERPROFILE%\.claude.json` under `mcpServers`:
+> ```json
+> {
+>   "mcpServers": {
+>     "d365fo-mcp-tools": {
+>       "type": "http",
+>       "url": "http://localhost:8080/mcp/"
+>     }
+>   }
+> }
+> ```
 
+## C2. Project instructions (`CLAUDE.md`)
+Claude Code walks up the directory tree from the opened folder and picks up `CLAUDE.md` (the equivalent of Copilot's `.github\copilot-instructions.md` from step 19). Place it in the parent folder shared by all your D365FO solutions — every repo opened underneath inherits it:
 
-20. If you have done the majority of above through Visual Studio Code, it's time to restart it. Use `CTRL+SHIFT+N` for new workspace. Open folder with the whole repository, i.e. `C:\Repos\D365FO-Intax`.
-> The dedicated terminal window must remain opened. 
+```powershell
+Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.md"
+```
 
-> TODO:  I've probably did sth wrong with the config of 21st, but no point to go further.
+For per-repo overrides, add a `CLAUDE.md` in the repo root — Claude Code merges all files found on the path (child wins on conflict). CHECK THE PATH matches where your `.sln` folders live.
 
-21. In VS code, chat, go to `Settings / Agent Customizations / MCP servers\`, press `+`, select `HTTP` and paste `http://localhost:8080/mcp/`, go for Global and you're done. You should see your server under `MCP Servers - installed`.
+## C3. Coding standards / skills (plugin)
+The X++ coding standards and naming conventions ship as a Claude Code plugin in `.github\` of this repo. Install Claude Code and load the plugin once; it then applies to all sessions on the machine:
 
-21. **Time to test!** Open new chat and ask `What tables contain "CustAccount" field?`. You should see sth that points out directly to MCP usage.
+```powershell
+claude --plugin-dir "C:\Repos\d365fo-mcp-server\.github"
+```
+
+After pulling repo updates, run `/reload-plugins` inside an active Claude Code session. The skill is invokable as `/d365fo-xpp:ang-xpp-dev`.
+
+## C4. Test
+Restart VS Code (`CTRL+SHIFT+N` for a fresh window), open the D365FO repo folder, open a new chat and ask:
+
+`What tables contain a CustAccount field?`
+
+You should see the call routed to **d365fo-mcp-tools**. If Claude Code uses built-in file/search tools instead, the `CLAUDE.md` from Z2 is not in scope — verify it sits in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root, and that the `npm run dev` window is still running.
 
