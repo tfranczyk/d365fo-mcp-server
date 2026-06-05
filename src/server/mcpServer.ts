@@ -15,7 +15,7 @@ import { registerClassResource } from '../resources/classResource.js';
 import { registerWorkspaceResources } from '../resources/workspaceResource.js';
 import { registerCodeReviewPrompt } from '../prompts/codeReview.js';
 import type { XppServerContext } from '../types/context.js';
-import { SERVER_MODE, LOCAL_TOOLS } from './serverMode.js';
+import { SERVER_MODE, LOCAL_TOOLS, getToolAnnotations } from './serverMode.js';
 import { getConfigManager } from '../utils/configManager.js';
 import { setLastRoots, recordRootsListChanged } from '../utils/stdioSessionInfo.js';
 
@@ -182,6 +182,42 @@ export function createXppMcpServer(context: XppServerContext): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const allTools = {
       tools: [
+        {
+          name: 'confirm_implementation_plan',
+          description: `🧭 Record the developer-APPROVED implementation plan for this session. Call this AFTER you have (1) finished investigating with read tools, (2) presented the COMPLETE plan to the developer in chat — every object created/modified, the tools in execution order, the Ang prefix, EDT choices, and all labels — and (3) the developer has approved it.
+
+⛔ The code-creating tools (generate_smart_table, generate_smart_form, generate_smart_report, create_d365fo_file, modify_d365fo_file, create_label, rename_label) WILL NOT RUN until you call this. Investigation/read tools are never blocked.
+
+Do NOT call this before the developer has seen and approved the plan. If they ask for changes, revise and call again with the updated steps.`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              summary: {
+                type: 'string',
+                description: 'One-paragraph summary of the change the developer approved.',
+              },
+              steps: {
+                type: 'array',
+                description: 'The ordered list of tool calls you will make. Include EVERY create/modify step — anything not listed will be blocked.',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  properties: {
+                    tool: { type: 'string', description: "MCP tool for this step, e.g. 'generate_smart_table', 'create_label', 'modify_d365fo_file'." },
+                    target: { type: 'string', description: "Primary object/label this step creates or modifies, e.g. 'AngTickets', '@Ang:TicketId', 'CustTable.AngExtension'." },
+                    description: { type: 'string', description: 'What this step does, in plain language.' },
+                  },
+                  required: ['tool', 'description'],
+                },
+              },
+              rationale: {
+                type: 'string',
+                description: 'Optional: why this approach (new object vs extension, EDT choices, etc.).',
+              },
+            },
+            required: ['summary', 'steps'],
+          },
+        },
         {
           name: 'search',
           description: `🔍 Search 584,799+ pre-indexed D365FO objects by exact name (e.g., "CustTable", "SalesFormLetter") or keywords (e.g., "dimension helper", "validation table"). Returns basic info: name, type, model.
@@ -2709,6 +2745,14 @@ Examples:
     } else {
       console.error(`[MCP Server] Tool list in full mode: ${allTools.tools.length} tools (no filtering)`);
     }
+
+    // Annotate every tool so MCP clients (VS Code) only prompt for confirmation
+    // on tools that actually mutate the model — read/search/analysis tools are
+    // marked readOnlyHint so the investigation phase stays friction-free.
+    allTools.tools = allTools.tools.map(t => ({
+      ...t,
+      annotations: getToolAnnotations(t.name),
+    }));
 
     return allTools;
   });

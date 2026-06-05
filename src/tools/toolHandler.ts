@@ -2,7 +2,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { XppServerContext } from '../types/context.js';
 import { getConfigManager } from '../utils/configManager.js';
-import { SERVER_MODE, LOCAL_TOOLS } from '../server/serverMode.js';
+import { SERVER_MODE, LOCAL_TOOLS, PLAN_GATED_TOOLS } from '../server/serverMode.js';
+import { getApprovedPlan, describePlan } from '../utils/planApproval.js';
+import { handleConfirmImplementationPlan } from './confirmImplementationPlan.js';
 import { searchTool } from './search.js';
 import { batchSearchTool } from './batchSearch.js';
 import { classInfoTool } from './classInfo.js';
@@ -153,6 +155,21 @@ function capToolResponse(toolName: string, result: any): any {
   return { ...result, content };
 }
 
+/**
+ * Best-effort extraction of the primary object/label a mutating call targets,
+ * used only for nicer gate messages and a soft "is this in the plan?" check.
+ * Argument shapes vary, so this is intentionally lenient.
+ */
+function extractMutationTarget(args: Record<string, any> | undefined): string | undefined {
+  if (!args) return undefined;
+  const keys = ['tableName', 'formName', 'reportName', 'objectName', 'name', 'labelId', 'id', 'fileName', 'filePath'];
+  for (const k of keys) {
+    const v = args[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 export function registerToolHandler(server: Server, context: XppServerContext): void {
   // Start periodic metrics logging (every 5 min to stderr)
   startMetricsLogging();
@@ -202,6 +219,64 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         content: [{ type: 'text', text: `⚠️ Tool '${toolName}' is not available in write-only mode.\n\nThis local MCP server only handles file operations. Search and analysis tools are provided by the Azure MCP server.` }],
         isError: true,
       };
+    }
+
+    // ── Implementation-plan gate ────────────────────────────────────────────
+    // Code-creating tools must not run until the developer has approved a plan
+    // for this session (recorded via confirm_implementation_plan). Skipped in
+    // read-only mode, which never mutates — there the smart tools return a plan
+    // for a local companion to execute. See src/utils/planApproval.ts.
+    if (SERVER_MODE !== 'read-only' && PLAN_GATED_TOOLS.has(toolName)) {
+      const plan = getApprovedPlan();
+      const target = extractMutationTarget(request.params.arguments as Record<string, any> | undefined);
+
+      if (!plan) {
+        return {
+          content: [{ type: 'text', text:
+`🛑 No approved implementation plan for this session — '${toolName}' will not run yet.
+
+Before creating or modifying ANY D365FO object you must:
+  1. Finish investigating with the read/search tools (those are unrestricted).
+  2. Present the COMPLETE plan to the developer in chat: every object you will
+     create or modify, the exact tools in execution order, the Ang prefix, the
+     EDT choices, and all labels.
+  3. Wait for the developer to approve (they may ask you to change it).
+  4. Call confirm_implementation_plan with the full ordered step list.
+
+Then re-issue this '${toolName}' call.` }],
+          isError: true,
+        };
+      }
+
+      const stepsForTool = plan.steps.filter(s => s.tool === toolName);
+      if (stepsForTool.length === 0) {
+        return {
+          content: [{ type: 'text', text:
+`🛑 '${toolName}'${target ? ` (target: ${target})` : ''} is not part of the approved plan (id: ${plan.planId}).
+
+Approved plan:
+${describePlan(plan)}
+
+If this operation is genuinely required, call confirm_implementation_plan again
+with an updated step list that includes it, then retry.` }],
+          isError: true,
+        };
+      }
+
+      // Tool is planned. Target match is best-effort and non-blocking: argument
+      // shapes vary, and a false block is worse than letting a related target
+      // through when the tool itself was clearly approved.
+      if (target) {
+        const targetPlanned = stepsForTool.some(s => {
+          if (!s.target) return true;
+          const a = s.target.toLowerCase();
+          const b = target.toLowerCase();
+          return a.includes(b) || b.includes(a);
+        });
+        if (!targetPlanned) {
+          console.error(`[planGate] ⚠️ ${toolName} target '${target}' not explicitly in approved plan ${plan.planId}; allowing (tool is planned).`);
+        }
+      }
     }
 
     const finishMetrics = recordToolStart(toolName);
@@ -301,6 +376,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         return createLabelTool(request, context);
       case 'rename_label':
         return renameLabelTool(request, context);
+      case 'confirm_implementation_plan':
+        return handleConfirmImplementationPlan(request, context);
       case 'get_table_patterns': {
         const r = await handleGetTablePatterns(
           request.params.arguments as any,

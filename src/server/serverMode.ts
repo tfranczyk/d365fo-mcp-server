@@ -42,6 +42,9 @@ export const LOCAL_TOOLS = new Set([
   'modify_d365fo_file',
   'create_label',
   'rename_label',
+  // Plan gate — must be reachable wherever writes happen (full + write-only),
+  // and needs no symbol DB, so it lives with the local tools.
+  'confirm_implementation_plan',
   'verify_d365fo_project',
   'update_symbol_index',
   'build_d365fo_project',
@@ -89,3 +92,63 @@ export const SERVER_MODE: ServerMode = (() => {
   if (raw === 'write-only' || raw === 'writeonly') return 'write-only';
   return 'full';
 })();
+
+/**
+ * Code-creating tools that mutate the D365FO model on disk.
+ *
+ * These are gated behind a developer-approved implementation plan: on a writing
+ * instance (full / write-only mode) they refuse to run until the agent has
+ * recorded an approval via `confirm_implementation_plan`. See
+ * src/utils/planApproval.ts and the gate in src/tools/toolHandler.ts.
+ *
+ * NOTE: this is intentionally NOT LOCAL_TOOLS — LOCAL_TOOLS is the broad
+ * "available on the local companion" set (it also contains read, build, and
+ * sync tools, and it does NOT contain the smart generators, which are dual-mode:
+ * they execute locally but only return a plan on Azure/read-only).
+ */
+export const PLAN_GATED_TOOLS = new Set<string>([
+  'create_d365fo_file',
+  'modify_d365fo_file',
+  'create_label',
+  'rename_label',
+  'generate_smart_table',
+  'generate_smart_form',
+  'generate_smart_report',
+]);
+
+/**
+ * Tools that have side effects (run a process, mutate the DB or symbol index,
+ * or revert files) but are not "code creation" and so are not plan-gated.
+ * They are still surfaced to the client as non-read-only so VS Code keeps
+ * prompting for confirmation before running them.
+ */
+export const EXECUTING_TOOLS = new Set<string>([
+  'build_d365fo_project',
+  'trigger_db_sync',
+  'run_systest_class',
+  'update_symbol_index',
+  'undo_last_modification',
+]);
+
+/**
+ * MCP tool annotations (https://modelcontextprotocol.io — ToolAnnotations).
+ * VS Code only shows its confirmation dialog for tools NOT marked readOnlyHint,
+ * so marking the read/search/analysis tools read-only keeps the investigation
+ * phase friction-free, while code-creating tools stay prompt-worthy.
+ */
+export function getToolAnnotations(name: string): {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  openWorldHint?: boolean;
+} {
+  if (PLAN_GATED_TOOLS.has(name)) {
+    return { title: name, readOnlyHint: false, destructiveHint: true, openWorldHint: false };
+  }
+  if (EXECUTING_TOOLS.has(name)) {
+    return { title: name, readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+  }
+  // Everything else (search, get_*, analysis, suggest_*, confirm_implementation_plan)
+  // is read-only with respect to the D365FO model and the developer's files.
+  return { title: name, readOnlyHint: true, openWorldHint: false };
+}

@@ -52,7 +52,7 @@ const CreateD365FileArgsSchema = z.object({
       'menu-item-display', 'menu-item-action', 'menu-item-output',
       'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
       'menu', 'menu-extension',
-      'security-privilege', 'security-duty', 'security-role',
+      'security-privilege', 'security-duty', 'security-role', 'configuration-key',
       'business-event', 'tile', 'kpi',
     ])
     .describe('Type of D365FO object to create'),
@@ -1468,6 +1468,8 @@ ${defaultParamGroupXml}
         return XmlTemplateGenerator.generateAxTileXml(objectName, properties);
       case 'kpi':
         return XmlTemplateGenerator.generateAxKpiXml(objectName, properties);
+      case 'configuration-key':
+        return this.generateAxConfigurationKeyXml(objectName, properties);
       default:
         throw new Error(`Unsupported object type: ${objectType}`);
     }
@@ -2821,6 +2823,17 @@ public final class ${contractName} extends BusinessEventsContract
 </${elemName}>`;
   }
 
+  static generateAxConfigurationKeyXml(name: string, properties?: Record<string, any>): string {
+    const label = properties?.label || '@TODO:LabelId';
+    const parentKey = properties?.parentKey ? `\n\t<ParentKey>${properties.parentKey}</ParentKey>` : '';
+    return `<?xml version="1.0" encoding="utf-8"?>
+  <AxConfigurationKey xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  \t<Name>${name}</Name>
+  \t<Label>${label}</Label>${parentKey}
+  </AxConfigurationKey>`;
+  }
+
+
   /**
    * Ensure AxMenuItemAction/Display/Output XML always has the required namespace
    * attributes on the root element.  D365FO metadata deserializer rejects the file
@@ -2908,6 +2921,7 @@ export class ProjectFileManager {
       'security-privilege': 'Security Privileges',
       'security-duty': 'Security Duties',
       'security-role': 'Security Roles',
+      'configuration-key': 'Configuration Keys',
       'business-event': 'Classes',
       'label-file': 'Label Files',
       tile: 'Tiles',
@@ -2948,6 +2962,7 @@ export class ProjectFileManager {
       'security-privilege': 'AxSecurityPrivilege',
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
+      'configuration-key': 'AxConfigurationKey',
       'business-event': 'AxClass',
       'label-file': 'AxLabelFile',
       tile: 'AxTile',
@@ -3550,30 +3565,37 @@ export async function handleCreateD365File(
       }
     }
 
-    // Case C: dot-notation extension types provided without a dot (bare base name)
-    // e.g. objectType="table-extension", objectName="PurchTable"
-    // → effectiveObjectName="PurchTable.Extension" so applyObjectPrefix SPECIAL CASE A
-    // produces the correct "PurchTable.ContosoExtension" instead of falling into NORMAL CASE
-    // and producing the wrong "ContosoPurchTable".
+    // Dot-notation metadata extensions follow the project's suffix-prefix convention:
+    //   <Base>.Extension<Prefix>   e.g. WMSLocationId.ExtensionAng, WHSLoadTemplate.ExtensionAng
+    // The base (element being extended, standard OR custom) must NEVER be prefixed,
+    // and the prefix goes AFTER "Extension" (Anegis convention), not before it.
     const DOT_NOTATION_EXTENSION_TYPES = new Set([
       'table-extension', 'form-extension', 'enum-extension', 'edt-extension',
       'data-entity-extension', 'menu-item-display-extension', 'menu-item-action-extension',
       'menu-item-output-extension', 'menu-extension',
     ]);
-    if (DOT_NOTATION_EXTENSION_TYPES.has(args.objectType) && !effectiveObjectName.includes('.')) {
-      effectiveObjectName = `${effectiveObjectName}.Extension`;
+
+    let finalObjectName: string;
+    if (DOT_NOTATION_EXTENSION_TYPES.has(args.objectType)) {
+      // Everything before the first '.' is the base element name. Ignore whatever suffix
+      // the caller supplied (".Extension", ".AngExtension", ".ExtensionAng", ".<Model>Extension",
+      // or none at all) and rebuild it to the canonical form.
+      const dotIdx = args.objectName.indexOf('.');
+      const baseName = dotIdx === -1 ? args.objectName : args.objectName.substring(0, dotIdx);
+      finalObjectName = `${baseName}.Extension${objectPrefix}`;
       console.error(
-        `[create_d365fo_file] Bare extension name auto-converted to dot-notation: ` +
-        `${args.objectName} → ${effectiveObjectName}`
+        `[create_d365fo_file] Metadata-extension naming (${args.objectType}): ` +
+        `${args.objectName} â ${finalObjectName}`
       );
+    } else {
+      finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
+      const objectSuffix = getObjectSuffix();
+      finalObjectName = applyObjectSuffix(finalObjectName, objectSuffix);
+    }
+    if (finalObjectName !== args.objectName) {
+      console.error(`[create_d365fo_file] Applied naming: ${args.objectName} â ${finalObjectName}`);
     }
 
-    let finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix);
-    const objectSuffix = getObjectSuffix();
-    finalObjectName = applyObjectSuffix(finalObjectName, objectSuffix);
-    if (finalObjectName !== args.objectName) {
-      console.error(`[create_d365fo_file] Applied naming: ${args.objectName} → ${finalObjectName}`);
-    }
 
     // Determine object folder based on type
     const objectFolderMap: Record<string, string> = {
@@ -3603,6 +3625,7 @@ export async function handleCreateD365File(
       'security-privilege': 'AxSecurityPrivilege',
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
+      'configuration-key': 'AxConfigurationKey',
       'business-event': 'AxClass',
       'label-file': 'AxLabelFile',
       tile: 'AxTile',
@@ -3921,6 +3944,12 @@ export async function handleCreateD365File(
         );
         xmlContent = replacedContent;
       }
+    }
+
+    // For metadata extensions supplied via xmlContent, force the root <Name> to match the
+    // resolved finalObjectName so the filename and object identity can never diverge.
+    if (args.xmlContent && DOT_NOTATION_EXTENSION_TYPES.has(args.objectType)) {
+      xmlContent = xmlContent.replace(/<Name>[^<]*<\/Name>/, `<Name>${finalObjectName}</Name>`);
     }
 
     // Sanitize AxReport XML structure — ensures required D365FO VS Designer elements

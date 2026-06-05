@@ -11,8 +11,40 @@ This file does **NOT** contain X++ coding standards, naming conventions — thos
 3. Run `modify_d365fo_file` with `dryRun=true` first → show diff → wait for explicit confirmation → re-run with `dryRun=false`.
 4. NEVER run terminal commands or PowerShell — they hang in this workspace.
 5. NEVER run `build_d365fo_project` autonomously — builds block the user. Wait for "build" / "compile" / "check errors".
+6. Before creating or modifying ANY D365FO object, present the COMPLETE plan in chat and get the developer's approval, then record it with `confirm_implementation_plan`. The code-creating tools are gated and refuse to run until you do (see Implementation-Plan Gate below).
 
-Everything below is reference material that supports these five rules.
+Everything below is reference material that supports these rules.
+
+## 📋 Implementation-Plan Gate — present the whole plan, then confirm
+
+Before creating or modifying ANY D365FO object you MUST get the developer's
+approval on a COMPLETE plan. The code-creating tools are gated and will refuse to
+run until you do.
+
+Protocol (in order):
+1. Investigate freely. Read/search tools (`search`, `get_*`, `find_*`,
+   `suggest_edt`, …) are never gated — use them to learn exactly what you will
+   extend before you plan.
+2. Present the COMPLETE plan to the developer in chat as ONE consolidated
+   message: every object you will create or modify, the exact tools in execution
+   order, the `Ang` prefix, the EDT choices, and every label (`@Ang:…`).
+   Do NOT start executing.
+3. Wait for approval. The developer may ask you to change it — revise and
+   re-present; never proceed on a stale plan.
+4. Call `confirm_implementation_plan` with `summary` + the full ordered `steps[]`
+   (each step: `tool`, `target`, `description`). This unlocks the gated tools for
+   this session.
+5. Execute the steps in order. If you must deviate, call
+   `confirm_implementation_plan` again with the revised steps BEFORE the change.
+
+Gated tools (blocked until a matching plan is approved): `generate_smart_table`,
+`generate_smart_form`, `generate_smart_report`, `create_d365fo_file`,
+`modify_d365fo_file`, `create_label`, `rename_label`.
+
+Never call `confirm_implementation_plan` before the developer has actually seen
+and approved the plan — the gate is for informed sign-off, not a rubber stamp.
+This is the TASK-level gate; the per-call `modify_d365fo_file` dry-run cycle
+still applies on top of it.
 
 ## 🚨 Terminal Prohibition
 
@@ -129,6 +161,7 @@ emits a structurally incomplete file that LOOKS like it succeeded.
 
 | Request | Tool(s) |
 |---|---|
+| Plan a create/modify change (REQUIRED first) | present plan in chat → `confirm_implementation_plan(summary, steps[])` |
 | Edit existing object | `modify_d365fo_file` |
 | Create new object | `create_d365fo_file` |
 | Create new TABLE | `generate_smart_table` (NEVER `create_d365fo_file` for tables) |
@@ -152,7 +185,15 @@ emits a structurally incomplete file that LOOKS like it succeeded.
 | Search labels | `search_labels` |
 | Create label | `create_label(..., createLabelFileIfMissing: true)` |
 | Rename label | `rename_label` |
+| Which EDT should this field use? | `suggest_edt(fieldName)` — prefers `Ang*` customs over standard EDTs |
+| Read data entity | `get_data_entity_info` |
+| Read menu item | `get_menu_item_info` |
+| Read a label's definition | `get_label_info` |
+| Check object/extension naming | `validate_object_naming` — enforces the `Ang` prefix conventions |
+| Refresh index after create/modify | `update_symbol_index` — so subsequent reads see new objects |
+| Roll back the last MCP edit | `undo_last_modification` — MCP-native; preferred over `git restore` |
 
+ The "create"/"edit"/"generate_smart_*"/label rows below require an approved plan first (see Implementation-Plan Gate).
 ---
 
 ## `modify_d365fo_file` — Operation Inventory
@@ -279,6 +320,8 @@ The X++ rules behind these recipes (CoC authoring, extension naming, when to use
 NEVER delete a method without `find_references` first. NEVER guess bodies from signatures.
 
 ### Recipe discipline (applies to every recipe below)
+
+Every recipe that creates or modifies an object starts with: present the plan → `confirm_implementation_plan`. Only then run the recipe's create/modify steps.
 
 Before any `create_d365fo_file` call, the corresponding "what's already there" call MUST run:
 - Table extension → `get_table_extension_info(table)` first

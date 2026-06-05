@@ -211,23 +211,24 @@ export function applyObjectPrefix(objectName: string, prefix: string): string {
     return objectName;
   }
 
-  // SPECIAL CASE B: Extension classes — extension infix goes BEFORE "_Extension"
-  // Example: SalesFormLetter + "Contoso"       → SalesFormLetterContoso_Extension
-  // Example: SalesFormLetter + "XY" (env "XY_") → SalesFormLetterXy_Extension
-  //
-  // IMPORTANT: objectName MUST be the BASE class name + "_Extension" WITHOUT any prefix infix.
+  // SPECIAL CASE B: Extension (augmentation) classes.
+  // Convention: prefix goes at the FRONT → {Prefix}{BaseClass}_Extension
+  //   WHSLoadTemplate_Extension     + "Xy" → XyWHSLoadTemplate_Extension
+  //   XyWHSLoadTemplate_Extension          → XyWHSLoadTemplate_Extension (already prefixed)
+  // (Diverges from the MS infix form {BaseClass}{Prefix}_Extension on purpose —
+  //  this server standardises on prefix-at-front for class augmentations.)
   if (objectName.endsWith('_Extension')) {
     const baseName = objectName.slice(0, -'_Extension'.length);
 
-    // Check if the extension infix is already present at the end (case-insensitive)
-    if (baseName.toLowerCase().endsWith(extensionInfix.toLowerCase())) {
-      return objectName; // Already has the correct infix, return as-is
+    // Already prefixed at the front (case-insensitive) → leave untouched
+    if (baseName.toLowerCase().startsWith(regularPrefix.toLowerCase())) {
+      return objectName;
     }
 
-    // Inject the extension infix before "_Extension"
-    return `${baseName}${extensionInfix}_Extension`;
+    // Prepend the prefix; PascalCase the base so the result is clean
+    const normalizedBase = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+    return `${regularPrefix}${normalizedBase}_Extension`;
   }
-
   // NORMAL CASE: Regular objects — prefix at the START
   // Check if already prefixed (case-insensitive check against the full regular prefix)
   if (objectName.toLowerCase().startsWith(regularPrefix.toLowerCase())) {
