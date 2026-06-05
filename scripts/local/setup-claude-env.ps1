@@ -21,7 +21,11 @@ if (Test-Path $configFile) {
     try {
         $existingConfig = $raw | ConvertFrom-Json
     } catch {
-        Write-Host "WARNING: could not parse existing $configFile - non-mcpServers keys may be lost." -ForegroundColor Yellow
+        Write-Host "ERROR: $configFile exists but failed to parse as JSON." -ForegroundColor Red
+        Write-Host "Refusing to overwrite - that would wipe your Claude Code state." -ForegroundColor Red
+        Write-Host "Close Claude Code / VS Code and try again. Details:" -ForegroundColor DarkGray
+        Write-Host $_.Exception.Message -ForegroundColor DarkGray
+        exit 1
     }
 }
 
@@ -48,6 +52,7 @@ $curPackages   = Get-Nested $existingConfig @("mcpServers", "d365fo-mcp-local", 
 $curSolutions  = Get-Nested $existingConfig @("mcpServers", "d365fo-mcp-local", "env", "D365FO_SOLUTIONS_PATH")
 $curModels     = Get-Nested $existingConfig @("mcpServers", "d365fo-mcp-local", "env", "CUSTOM_MODELS")
 $curLangs      = Get-Nested $existingConfig @("mcpServers", "d365fo-mcp-local", "env", "LABEL_LANGUAGES")
+$curUrl        = Get-Nested $existingConfig @("mcpServers", "d365fo-mcp-azure", "url")
 
 # ---------------------------------------------------------------------------
 
@@ -77,6 +82,7 @@ Write-Host "Re-run to update. Press Enter to keep current value." -ForegroundCol
 Write-Host ""
 
 $azureApiKey   = Read-Value "Azure MCP API key (X-Api-Key)"         -Current $curApiKey      -Secret
+$azureUrl      = Read-Value "Azure MCP server URL"                  -Current $curUrl
 Write-Host ""
 $serverPath    = Read-Value "Path to cloned d365fo-mcp-server repo"  -Current $curServerPath  -Default "C:\Repos\d365fo-mcp-server"
 $packagesPath  = Read-Value "PackagesLocalDirectory path"             -Current $curPackages    -Default "C:\AosService\PackagesLocalDirectory"
@@ -90,7 +96,7 @@ $labelLangs    = Read-Value "Label languages"                         -Current $
 $mcpServers = [PSCustomObject]@{
     "d365fo-mcp-azure" = [PSCustomObject]@{
         type    = "http"
-        url     = "https://intax321-xpp-mcp.azurewebsites.net/mcp/"
+        url     = $azureUrl
         headers = [PSCustomObject]@{ "X-Api-Key" = $azureApiKey }
     }
     "d365fo-mcp-local" = [PSCustomObject]@{
