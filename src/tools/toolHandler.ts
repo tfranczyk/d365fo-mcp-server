@@ -61,6 +61,7 @@ import { d365foErrorHelpTool } from './d365foErrorHelp.js';
 import { validateXppTool } from './validateXpp.js';
 import { resolveReferencesTool } from './resolveReferences.js';
 import { prepareChangeTool } from './prepareChange.js';
+import { prepareCreateTool } from './prepareCreate.js';
 import { recordToolStart, startMetricsLogging } from '../utils/toolMetrics.js';
 import { buildProgressMessage } from '../utils/toolProgressMessage.js';
 
@@ -397,6 +398,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         return resolveReferencesTool(request, context);
       case 'prepare_change':
         return prepareChangeTool(request, context);
+      case 'prepare_create':
+        return prepareCreateTool(request, context);
       case 'get_workspace_info': {
         const args = (request as any).params?.arguments || {};
 

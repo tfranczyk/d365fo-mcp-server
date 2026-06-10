@@ -361,7 +361,7 @@ GitHub Copilot connects to both servers at the same time and selects the right o
 
 1. `d365fo-azure` starts with `MCP_SERVER_MODE=read-only` → only exposes search/analysis tools
 2. `d365fo-local` starts with `MCP_SERVER_MODE=write-only` → only exposes file-operation tools
-3. GitHub Copilot aggregates both tool lists — from Copilot's perspective it sees All 57 tools
+3. GitHub Copilot aggregates both tool lists — from Copilot's perspective it sees All 58 tools
 4. When Copilot calls `create_d365fo_file`, it goes to the local server which has K:\ access
 5. When Copilot calls `search`, it goes to the Azure server with the full metadata database
 
@@ -386,8 +386,8 @@ When the server starts, it logs the detected mode and tool count:
 **Full mode (local development):**
 ```
 🔧 Server mode: full (from env: not set, defaulting to full)
-🎯 Registered 57 X++ MCP tools (full mode)
-[MCP Server] Tool list in full mode: 57 tools (no filtering)
+🎯 Registered 58 X++ MCP tools (full mode)
+[MCP Server] Tool list in full mode: 58 tools (no filtering)
 ```
 
 > **Note:** The local server in `write-only` mode skips database download and the symbol

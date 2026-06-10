@@ -2094,6 +2094,44 @@ SourceCode format for classes: class declaration with member vars inside { }, me
           required: ['goal', 'objectName'],
         },
       },
+      {
+        name: 'prepare_create',
+        description:
+          'Single-round context aggregator for creating NEW D365FO objects (mirror of prepare_change). ' +
+          'Returns in ONE call: name collision check, naming validation with the auto-applied prefix, ' +
+          'similar existing objects to copy patterns from, EDT suggestions for planned fields, ' +
+          'reusable labels, mined property defaults (standard-model statistics), and a grounding token. ' +
+          'Replaces the search → validate_object_naming → suggest_edt → search_labels sequence with one call. ' +
+          'Call BEFORE generating any new object.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            goal: {
+              type: 'string',
+              description: 'One-sentence description of what the new object is for. Example: "Parameter table for the Contoso import feature."',
+            },
+            objectName: {
+              type: 'string',
+              description: 'Proposed BASE name WITHOUT model prefix (same value you would pass to create_d365fo_file). Example: "ImportParameters".',
+            },
+            objectType: {
+              type: 'string',
+              enum: [
+                'class', 'table', 'form', 'enum', 'edt', 'query', 'view',
+                'data-entity', 'report', 'menu-item-display', 'menu-item-action',
+                'menu-item-output', 'security-privilege', 'security-duty', 'security-role',
+              ],
+              description: 'Type of the new D365FO object.',
+            },
+            fieldsHint: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'For tables/views: planned field names — each gets EDT suggestions from the index.',
+            },
+          },
+          required: ['goal', 'objectName', 'objectType'],
+        },
+      },
     ],
     };
 

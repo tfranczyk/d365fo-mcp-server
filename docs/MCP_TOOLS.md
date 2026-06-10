@@ -1,7 +1,7 @@
 # All Available Tools
 
 When you ask GitHub Copilot a question about D365FO code, it automatically calls one of these
-57 tools to look up the answer or generate code. You do not need to name the tools yourself —
+58 tools to look up the answer or generate code. You do not need to name the tools yourself —
 just ask in plain English.
 
 > **C# Metadata Bridge (Windows D365FO VMs only):** On a Windows VM with D365FO installed,
@@ -144,13 +144,14 @@ The following tools empower Copilot to trigger X++ compilation, testing, and db 
 | **create_label** | Add a new label to all language files in a model (or only the locales listed in `languages`) | "Create label MyNewField in MyModel" |
 | **rename_label** | Rename a label ID in .label.txt, X++ source and XML metadata | "Rename label OldName to NewName in MyModel" |
 
-### Code Quality & Grounding (3 tools)
+### Code Quality & Grounding (4 tools)
 
 | Tool | What it does | Example prompt |
 |------|-------------|---------------|
-| **validate_xpp** | Offline X++/XML BP validator — <50 ms, all-platform, no xppbp.exe needed. Returns `{rule, severity, line, excerpt, fix}[]`. Call after generating code, before write operations. | "Validate this generated class for BP issues" |
+| **validate_xpp** | Offline X++/XML BP validator — <50 ms, all-platform, no xppbp.exe needed. Returns `{rule, severity, line, excerpt, fix}[]` incl. data-driven property rules (XML002–XML005) mined from your standard models. Call after generating code, before write operations. | "Validate this generated class for BP issues" |
 | **resolve_references** | Semantic reference resolver — verifies every type, table field, method (incl. arity), enum, label and intrinsic target (`tableStr`, `fieldStr`, …) in generated X++ against the indexed codebase. Catches hallucinated symbols before the compiler does. | "Check that this generated code only references real symbols" |
 | **prepare_change** | Single-round context aggregator for extension work. Returns method signature, existing CoC wrappers, eligibility, strategy, naming validation, and a grounding token in one parallel call. | "Prepare context for extending CustTable.validateWrite" |
+| **prepare_create** | Single-round context aggregator for NEW objects. Returns collision check, naming with the auto-applied prefix, similar objects to copy patterns from, EDT suggestions for planned fields, reusable labels, mined property defaults, and a grounding token. | "Prepare context for a new Contoso import parameters table" |
 
 > **Grounding enforcement:** `prepare_change` issues a SHA-256 provenance token (30-min TTL) **bound to the object it was issued for**. When `GROUNDING_ENFORCE=true` is set in `.env`:
 > - extension patterns in `generate_code` and extension objectTypes in `create_d365fo_file` / `modify_d365fo_file` require a valid token for the target object, and

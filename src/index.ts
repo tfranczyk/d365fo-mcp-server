@@ -615,13 +615,13 @@ async function main() {
     });
 
     // Log tool count immediately (transport is already connected)
-    const totalTools = 57;
+    const totalTools = 58;
     const localToolCount = LOCAL_TOOLS.size;
     const toolCount = SERVER_MODE === 'write-only' ? localToolCount :
                      SERVER_MODE === 'read-only' ? totalTools - localToolCount : totalTools;
     const toolDesc = SERVER_MODE === 'write-only' ? `(${Array.from(LOCAL_TOOLS).join(', ')})` :
                     SERVER_MODE === 'read-only' ? '(all except local tools)' :
-                    '(8 discovery + 7 object-info + 6 intelligent + 4 smart-gen + 3 pattern-analysis + 10 security-ext + 4 file-ops + 7 sdlc-build + 4 labels + 3 code-quality)';
+                    '(8 discovery + 7 object-info + 6 intelligent + 4 smart-gen + 3 pattern-analysis + 10 security-ext + 4 file-ops + 7 sdlc-build + 4 labels + 4 code-quality)';
     console.log(`🎯 Registered ${toolCount} X++ MCP tools ${toolDesc}`);
     serverState.isReady = true;
     serverState.isHealthy = true;
@@ -787,6 +787,7 @@ async function main() {
           { name: 'validate_xpp',                 desc: 'Offline BP validator: 13 rules (SEL/COC/BP/XML), <50 ms, no Windows required' },
           { name: 'resolve_references',           desc: 'Semantic resolver: every type/field/method/label in generated code proven against the index' },
           { name: 'prepare_change',               desc: 'Single-call context aggregator: signature + CoC wrappers + grounding token' },
+          { name: 'prepare_create',               desc: 'Single-call aggregator for NEW objects: collisions + naming + EDTs + labels + token' },
         ]},
       ];
 

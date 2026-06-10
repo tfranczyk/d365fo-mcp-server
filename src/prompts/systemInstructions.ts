@@ -145,11 +145,10 @@ After the call, read the response: \`isError=true\` means the change did NOT app
 2. Generate the code, then \`resolve_references(code)\` + \`validate_xpp(code)\` — fix any errors in the same turn
 3. \`create_d365fo_file\`/\`modify_d365fo_file\` with \`groundingToken\`
 
-**New objects:**
-1. \`analyze_code_patterns(scenario)\` / \`search(...)\` - learn from real codebase
-2. \`get_class_info(...)\` or \`get_table_info(...)\` - understand dependencies
-3. Generate, then \`resolve_references(code)\` — every type/field/method/label must be proven by the index
-4. \`generate_code(...)\` or \`create_d365fo_file(...)\` - create with correct patterns
+**New objects — 3 calls total:**
+1. \`prepare_create(goal, objectName, objectType, fieldsHint?)\` — ONE call returns collision check, naming, similar objects, EDT suggestions, reusable labels, property defaults + \`groundingToken\`
+2. Generate the object, then \`resolve_references(code)\` + \`validate_xpp(code)\` — fix any errors in the same turn
+3. \`create_d365fo_file(..., groundingToken=...)\`
 5. **NEVER run \`build_d365fo_project()\` automatically.** Builds take a long time and block the user. After completing changes, tell the user the changes are done and they can build manually when ready. Only run \`build_d365fo_project()\` when the user explicitly requests it ("build", "compile", "check errors"). If after a requested build there are X++ errors, fix them immediately using \`modify_d365fo_file\` and rebuild until clean.
 
 ### 4. Semantic vs. Prefix Search
