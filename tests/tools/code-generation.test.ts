@@ -463,6 +463,23 @@ describe('generate_smart_form', () => {
     expect(result?.content[0].text).toContain('MyCustomForm');
     expect(result?.content[0].text).toContain('MyCustomTable');
   });
+
+  it('warns when the requested pattern has no template and degrades to another', async () => {
+    // "Task" has a catalog spec (TaskSingle) but no builder template, so it
+    // silently falls back to SimpleList. The output must say so and point at a
+    // reference form to clone instead.
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'MyTaskForm',
+        modelName: 'MyModel',
+        dataSource: 'MyCustomTable',
+        formPattern: 'Task',
+      },
+      ctx.symbolIndex,
+    );
+    expect(result?.content[0].text).toContain('No dedicated template');
+    expect(result?.content[0].text).toContain('cloneFrom');
+  });
 });
 
 // ─── suggest_edt ─────────────────────────────────────────────────────────────
