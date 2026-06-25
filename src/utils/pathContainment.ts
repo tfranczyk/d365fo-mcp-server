@@ -18,7 +18,6 @@
  */
 
 import * as path from 'path';
-import { realpathSync } from 'fs';
 import { getConfigManager, fallbackPackagePath } from './configManager.js';
 
 export interface PathContainmentResult {
@@ -44,12 +43,20 @@ function isAbsoluteCrossPlatform(p: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(p) || /^\\\\[^\\/]+[\\/][^\\/]+/.test(p);
 }
 
-/** Normalise a path to absolute + POSIX separators for comparison. */
+/**
+ * Normalise a path to absolute + POSIX separators for comparison.
+ *
+ * Lexical only — we deliberately do NOT resolve symlinks/junctions here.
+ * Standard D365FO dev boxes junction a model directory under
+ * <PackagesLocalDirectory> to a git working tree; realpath would resolve a
+ * valid write target to a path *outside* the configured package root and
+ * wrongly fail containment. path.posix.normalize still collapses '.'/'..'
+ * segments, so path traversal is still rejected.
+ */
 function normalise(p: string): string {
   if (!p) return '';
-  let abs = isAbsoluteCrossPlatform(p) ? p : path.resolve(p);
-  try { abs = realpathSync(abs); } catch { /* may not exist yet — ok */ }
-  return abs.replace(/\\/g, '/').replace(/\/+$/, '');
+  const abs = isAbsoluteCrossPlatform(p) ? p : path.resolve(p);
+  return path.posix.normalize(abs.replace(/\\/g, '/')).replace(/\/+$/, '');
 }
 
 /** True when `child` is equal to or nested under `parent` (case-insensitive). */
