@@ -19,8 +19,8 @@
  *  2. They do NOT need the symbol database — they skip the dbReady await.
  *  3. They are the tools available in 'write-only' (local companion) mode.
  *
- * The set also includes bridge-backed READ tools (get_class_info, get_table_info, …)
- * which work in write-only mode via IMetadataProvider — no SQLite needed.
+ * The set also includes the bridge-backed READ surface (get_object_info, get_method_source,
+ * get_method_signature) which works in write-only mode via IMetadataProvider — no SQLite needed.
  * This allows Copilot to verify objects it just created without an Azure re-deploy.
  *
  * - Excluded in 'read-only' mode (Azure deployment can't access local K:\ paths)
@@ -29,8 +29,7 @@
  * Members:
  *  create_d365fo_file   — writes XML to K:\PackagesLocalDirectory
  *  modify_d365fo_file   — edits XML on K:\PackagesLocalDirectory
- *  create_label         — writes to K:\PackagesLocalDirectory label files
- *  rename_label         — rewrites label files + all source references on K:\
+ *  labels (write actions — create/rename) — writes to / rewrites K:\PackagesLocalDirectory label files + source references
  *  verify_d365fo_project — reads .rnrproj from K:\VSProjects
  *  get_workspace_info   — scans .rnrproj via D365FO_SOLUTIONS_PATH (K:\); reads
  *                         .mcp.json + in-memory config/stdio session state;
@@ -38,10 +37,6 @@
  *                         workspace info — so it's excluded from read-only mode
  */
 export const LOCAL_TOOLS = new Set([
-  'create_d365fo_file',
-  'modify_d365fo_file',
-  'create_label',
-  'rename_label',
   // Plan gate — must be reachable wherever writes happen (full + write-only),
   // and needs no symbol DB, so it lives with the local tools.
   'confirm_implementation_plan',
@@ -54,22 +49,37 @@ export const LOCAL_TOOLS = new Set([
   'review_workspace_changes',
   'undo_last_modification',
   'get_workspace_info',
-  // Bridge-backed read tools: work in write-only mode via IMetadataProvider
-  // (no SQLite needed — bridge reads directly from disk).
-  // Allows Copilot to verify objects it just created/modified without waiting
-  // for an Azure DB re-deploy or an explicit update_symbol_index call.
-  'get_class_info',
-  'get_table_info',
-  'get_form_info',
-  'get_enum_info',
-  'get_edt_info',
-  'get_query_info',
-  'get_view_info',
-  'get_report_info',
-  'get_data_entity_info',
-  'get_method_source',
-  'get_method_signature',
-  'get_menu_item_info',
+  // Bridge-backed member reader: works in write-only mode via IMetadataProvider
+  // (no SQLite needed — bridge reads directly from disk). get_method unifies the
+  // former get_method_signature + get_method_source via the `include` discriminator.
+  // The bridge-backed OBJECT readers (class/table/form/…) are now reached through
+  // get_object_info, which is in ALWAYS_TOOLS so it stays available in every mode.
+  'get_method',
+]);
+
+/**
+ * Tools exposed in EVERY server mode (full / read-only / write-only), bypassing
+ * the LOCAL_TOOLS partition.
+ *
+ * get_object_info dispatches to both bridge-backed types (class/table/… — usable
+ * on the local VM / write-only companion) and SQLite-backed types
+ * (service/map/config-key/security-policy/macro — usable on Azure read-only).
+ * Because it spans both localities it cannot live in a single partition, so it is
+ * always published; per-type it returns a clear message when its backing source
+ * is unavailable in the current mode.
+ */
+export const ALWAYS_TOOLS = new Set([
+  'get_object_info',
+  // `labels` mixes read (search/info) and write (create/rename) actions.
+  // The read actions must work on Azure read-only; the write actions need K:\
+  // access and are gated at runtime by the underlying handler returning a clear
+  // error when the local filesystem isn't reachable.
+  'labels',
+  // `d365fo_file` mixes a read-capable action (generate → XML text, works on
+  // Azure read-only) with write actions (create/modify → need K:\). Same gating
+  // approach as `labels`: the create/modify handlers return a clear error when
+  // the local filesystem isn't reachable.
+  'd365fo_file',
 ]);
 
 /**
@@ -94,61 +104,50 @@ export const SERVER_MODE: ServerMode = (() => {
 })();
 
 /**
- * Code-creating tools that mutate the D365FO model on disk.
+ * Tools whose code-creating actions mutate the D365FO model on disk.
  *
  * These are gated behind a developer-approved implementation plan: on a writing
  * instance (full / write-only mode) they refuse to run until the agent has
  * recorded an approval via `confirm_implementation_plan`. See
  * src/utils/planApproval.ts and the gate in src/tools/toolHandler.ts.
  *
+ * Upstream consolidated the former granular tools (create_d365fo_file /
+ * modify_d365fo_file / create_label / rename_label / generate_smart_*) into a
+ * few action-multiplexed tools. `d365fo_file` and `labels` each mix read and
+ * write actions, so the tool NAME alone no longer says whether a call mutates —
+ * use isPlanGatedCall() to decide, which also inspects the `action` argument so
+ * read actions (generate / search / info) stay friction-free.
+ *
  * NOTE: this is intentionally NOT LOCAL_TOOLS — LOCAL_TOOLS is the broad
  * "available on the local companion" set (it also contains read, build, and
- * sync tools, and it does NOT contain the smart generators, which are dual-mode:
- * they execute locally but only return a plan on Azure/read-only).
+ * sync tools).
  */
 export const PLAN_GATED_TOOLS = new Set<string>([
-  'create_d365fo_file',
-  'modify_d365fo_file',
-  'create_label',
-  'rename_label',
-  'generate_smart_table',
-  'generate_smart_form',
-  'generate_smart_report',
+  'd365fo_file',
+  'labels',
 ]);
 
 /**
- * Tools that have side effects (run a process, mutate the DB or symbol index,
- * or revert files) but are not "code creation" and so are not plan-gated.
- * They are still surfaced to the client as non-read-only so VS Code keeps
- * prompting for confirmation before running them.
+ * Within the multiplexed PLAN_GATED_TOOLS, only these `action` values actually
+ * write to disk and therefore require an approved plan. A tool listed in
+ * PLAN_GATED_TOOLS but absent here is gated for every action.
  */
-export const EXECUTING_TOOLS = new Set<string>([
-  'build_d365fo_project',
-  'trigger_db_sync',
-  'run_systest_class',
-  'update_symbol_index',
-  'undo_last_modification',
-]);
+const PLAN_GATED_ACTIONS: Record<string, Set<string>> = {
+  d365fo_file: new Set(['create', 'modify']),
+  labels: new Set(['create', 'rename', 'update']),
+};
 
 /**
- * MCP tool annotations (https://modelcontextprotocol.io — ToolAnnotations).
- * VS Code only shows its confirmation dialog for tools NOT marked readOnlyHint,
- * so marking the read/search/analysis tools read-only keeps the investigation
- * phase friction-free, while code-creating tools stay prompt-worthy.
+ * True when this specific call mutates the D365FO model and so needs an approved
+ * implementation plan. Inspects the `action` argument for action-multiplexed
+ * tools so their read actions remain unrestricted.
  */
-export function getToolAnnotations(name: string): {
-  title: string;
-  readOnlyHint: boolean;
-  destructiveHint?: boolean;
-  openWorldHint?: boolean;
-} {
-  if (PLAN_GATED_TOOLS.has(name)) {
-    return { title: name, readOnlyHint: false, destructiveHint: true, openWorldHint: false };
-  }
-  if (EXECUTING_TOOLS.has(name)) {
-    return { title: name, readOnlyHint: false, destructiveHint: false, openWorldHint: false };
-  }
-  // Everything else (search, get_*, analysis, suggest_*, confirm_implementation_plan)
-  // is read-only with respect to the D365FO model and the developer's files.
-  return { title: name, readOnlyHint: true, openWorldHint: false };
+export function isPlanGatedCall(toolName: string, args: Record<string, any> | undefined): boolean {
+  if (!PLAN_GATED_TOOLS.has(toolName)) return false;
+  const gatedActions = PLAN_GATED_ACTIONS[toolName];
+  if (!gatedActions) return true; // whole tool is gated
+  const rawAction = (args as any)?.action;
+  const action = typeof rawAction === 'string' ? rawAction.trim().toLowerCase() : undefined;
+  // No/unknown action → gate defensively; the tool handler will reject a bad action anyway.
+  return action ? gatedActions.has(action) : true;
 }

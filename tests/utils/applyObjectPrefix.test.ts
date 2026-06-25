@@ -18,12 +18,18 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { applyObjectPrefix } from '../../src/utils/modelClassifier';
 
 const originalPrefix = process.env.EXTENSION_PREFIX;
+const originalStyle = process.env.EXTENSION_NAMING_STYLE;
 
 afterEach(() => {
   if (originalPrefix === undefined) {
     delete process.env.EXTENSION_PREFIX;
   } else {
     process.env.EXTENSION_PREFIX = originalPrefix;
+  }
+  if (originalStyle === undefined) {
+    delete process.env.EXTENSION_NAMING_STYLE;
+  } else {
+    process.env.EXTENSION_NAMING_STYLE = originalStyle;
   }
 });
 
@@ -103,22 +109,24 @@ describe('applyObjectPrefix — SPECIAL CASE A, bare model-name suffix (no "exte
 // SPECIAL CASE B — extension classes (_Extension)
 // ---------------------------------------------------------------------------
 describe('applyObjectPrefix — SPECIAL CASE B (_Extension class)', () => {
-  it('injects infix before _Extension', () => {
+  // Anegis convention: the prefix goes at the FRONT of an _Extension class
+  // ({Prefix}{Base}_Extension), not as an infix before "_Extension".
+  it('prepends the prefix at the front of an _Extension class', () => {
     delete process.env.EXTENSION_PREFIX;
     expect(applyObjectPrefix('SalesFormLetter_Extension', 'Contoso'))
-      .toBe('SalesFormLetterContoso_Extension');
+      .toBe('ContosoSalesFormLetter_Extension');
   });
 
-  it('returns as-is when infix already present', () => {
+  it('returns as-is when already prefixed at the front', () => {
     delete process.env.EXTENSION_PREFIX;
-    expect(applyObjectPrefix('SalesFormLetterContoso_Extension', 'Contoso'))
-      .toBe('SalesFormLetterContoso_Extension');
+    expect(applyObjectPrefix('ContosoSalesFormLetter_Extension', 'Contoso'))
+      .toBe('ContosoSalesFormLetter_Extension');
   });
 
-  it('injects PascalCase infix for underscore-style prefix (XY_ → Xy)', () => {
+  it('keeps the underscore-style prefix at the front (XY_)', () => {
     process.env.EXTENSION_PREFIX = 'XY_';
     expect(applyObjectPrefix('SalesFormLetter_Extension', 'XY'))
-      .toBe('SalesFormLetterXy_Extension');
+      .toBe('XY_SalesFormLetter_Extension');
   });
 });
 
@@ -150,5 +158,72 @@ describe('applyObjectPrefix — NORMAL CASE (regular objects)', () => {
   it('returns unchanged when prefix is empty', () => {
     delete process.env.EXTENSION_PREFIX;
     expect(applyObjectPrefix('MyTable', '')).toBe('MyTable');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EXTENSION_NAMING_STYLE=model-name — extension token is the MODEL NAME (VS default)
+// ---------------------------------------------------------------------------
+describe('applyObjectPrefix — model-name style (EXTENSION_NAMING_STYLE=model-name)', () => {
+  // Short prefix that differs from the long model name — the scenario this style exists for.
+  const setup = () => {
+    process.env.EXTENSION_PREFIX = 'CR';
+    process.env.EXTENSION_NAMING_STYLE = 'model-name';
+  };
+
+  it('class extension uses model name: Base_Extension → Base_ModelName_Extension', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable_Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable_ContosoRobotics_Extension');
+  });
+
+  it('class extension is idempotent (no double model name)', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable_ContosoRobotics_Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable_ContosoRobotics_Extension');
+  });
+
+  it('class extension strips a stray prefix infix and uses the model name', () => {
+    setup();
+    // double underscore left by upstream model-name stripping must collapse cleanly
+    expect(applyObjectPrefix('CustTable__Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable_ContosoRobotics_Extension');
+  });
+
+  it('element extension uses model name with no "Extension" word: Base.Extension → Base.ModelName', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable.Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable.ContosoRobotics');
+  });
+
+  it('element extension is idempotent (Base.ModelName → Base.ModelName)', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable.ContosoRobotics', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable.ContosoRobotics');
+  });
+
+  it('element extension replaces a foreign/prefix token with the model name', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable.CrExtension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable.ContosoRobotics');
+  });
+
+  it('NEW objects still use the short prefix (model name is ignored for non-extensions)', () => {
+    setup();
+    expect(applyObjectPrefix('MyTable', 'CR', 'ContosoRobotics')).toBe('CRMyTable');
+  });
+
+  it('falls back to prefix style (Anegis prefix-at-front) when no model name is passed', () => {
+    setup();
+    expect(applyObjectPrefix('CustTable_Extension', 'CR')).toBe('CRCustTable_Extension');
+  });
+
+  it('prefix style is unaffected even when a model name is passed', () => {
+    process.env.EXTENSION_PREFIX = 'CR';
+    delete process.env.EXTENSION_NAMING_STYLE; // default = prefix
+    expect(applyObjectPrefix('CustTable_Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CRCustTable_Extension');
+    expect(applyObjectPrefix('CustTable.Extension', 'CR', 'ContosoRobotics'))
+      .toBe('CustTable.CRExtension');
   });
 });

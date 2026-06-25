@@ -27,7 +27,14 @@ import { loadEnv } from '../../src/utils/loadEnv.js';
 const mockConfig = vi.mocked(dotenv.config);
 
 // ── Env-var isolation ────────────────────────────────────────────────────────
-const TRACKED_VARS = ['ENV_FILE', 'DB_PATH', 'LABELS_DB_PATH', 'METADATA_PATH'] as const;
+const TRACKED_VARS = [
+  'ENV_FILE',
+  'DB_PATH',
+  'LABELS_DB_PATH',
+  'METADATA_PATH',
+  'DEV_ENVIRONMENT_TYPE',
+  'D365FO_DEV_ENVIRONMENT_TYPE',
+] as const;
 let savedEnv: Partial<Record<string, string>> = {};
 
 beforeEach(() => {
@@ -53,10 +60,13 @@ afterEach(() => {
 
 // Simulate a caller at /repo/src/index.ts → callerDir = /repo/src
 // Default envPath resolves to /repo/src/../.env = /repo/.env
-// On Windows, file URLs require a drive letter — use C:/repo to keep the
-// path.resolve('/repo/...') expectations consistent (same drive root).
+// On Windows, file URLs require a drive letter, and path.resolve('/repo/...')
+// resolves against the *current working directory's* drive — which is not
+// necessarily C:. Derive the drive from process.cwd() so the URL-based path
+// and the path.resolve(...) expectations always share the same drive root.
+const WIN_DRIVE = process.cwd().slice(0, 1);
 const FAKE_CALLER_URL = process.platform === 'win32'
-  ? 'file:///C:/repo/src/index.ts'
+  ? `file:///${WIN_DRIVE}:/repo/src/index.ts`
   : 'file:///repo/src/index.ts';
 const REPO_ROOT_ENV = path.resolve('/repo/.env');
 
@@ -66,7 +76,7 @@ describe('env file path resolution', () => {
     loadEnv(FAKE_CALLER_URL);
 
     expect(mockConfig).toHaveBeenCalledTimes(1);
-    expect(mockConfig).toHaveBeenCalledWith({ path: REPO_ROOT_ENV });
+    expect(mockConfig).toHaveBeenCalledWith({ path: REPO_ROOT_ENV, quiet: true });
   });
 
   it('uses ENV_FILE when set to an absolute path', () => {
@@ -76,6 +86,7 @@ describe('env file path resolution', () => {
     expect(mockConfig).toHaveBeenCalledTimes(1);
     expect(mockConfig).toHaveBeenCalledWith({
       path: path.resolve('/some/instances/alpha/.env'),
+      quiet: true,
     });
   });
 
@@ -85,6 +96,7 @@ describe('env file path resolution', () => {
 
     expect(mockConfig).toHaveBeenCalledWith({
       path: path.resolve('instances/alpha/.env'),
+      quiet: true,
     });
   });
 });
@@ -98,8 +110,8 @@ describe('fallback behaviour', () => {
 
     // First call: explicit path; second call: no args (process.cwd() fallback)
     expect(mockConfig).toHaveBeenCalledTimes(2);
-    expect(mockConfig).toHaveBeenNthCalledWith(1, { path: REPO_ROOT_ENV });
-    expect(mockConfig).toHaveBeenNthCalledWith(2);
+    expect(mockConfig).toHaveBeenNthCalledWith(1, { path: REPO_ROOT_ENV, quiet: true });
+    expect(mockConfig).toHaveBeenNthCalledWith(2, { quiet: true });
   });
 
   it('does NOT fall back when ENV_FILE is set but the file is missing', () => {
@@ -199,5 +211,51 @@ describe('relative path resolution', () => {
     expect(process.env.DB_PATH).toBeUndefined();
     expect(process.env.LABELS_DB_PATH).toBeUndefined();
     expect(process.env.METADATA_PATH).toBeUndefined();
+  });
+});
+
+// ── Dev-environment-type alias (external prefixed → internal plain) ───────────
+// The public/canonical setting is D365FO_DEV_ENVIRONMENT_TYPE, but the code
+// reads the plain DEV_ENVIRONMENT_TYPE. loadEnv bridges the two: prefixed wins,
+// a lone plain entry is tolerated as silent legacy.
+describe('dev-environment-type alias', () => {
+  it('copies the prefixed value into the plain name when only prefixed is set', () => {
+    mockConfig.mockImplementation(() => {
+      process.env.D365FO_DEV_ENVIRONMENT_TYPE = 'ude';
+      return { parsed: {} } as any;
+    });
+
+    loadEnv(FAKE_CALLER_URL);
+
+    expect(process.env.DEV_ENVIRONMENT_TYPE).toBe('ude');
+  });
+
+  it('lets the prefixed value win when both names are set', () => {
+    mockConfig.mockImplementation(() => {
+      process.env.DEV_ENVIRONMENT_TYPE = 'traditional';
+      process.env.D365FO_DEV_ENVIRONMENT_TYPE = 'ude';
+      return { parsed: {} } as any;
+    });
+
+    loadEnv(FAKE_CALLER_URL);
+
+    expect(process.env.DEV_ENVIRONMENT_TYPE).toBe('ude');
+  });
+
+  it('preserves a lone plain entry (legacy fallback) when prefixed is unset', () => {
+    mockConfig.mockImplementation(() => {
+      process.env.DEV_ENVIRONMENT_TYPE = 'traditional';
+      return { parsed: {} } as any;
+    });
+
+    loadEnv(FAKE_CALLER_URL);
+
+    expect(process.env.DEV_ENVIRONMENT_TYPE).toBe('traditional');
+  });
+
+  it('leaves the plain name unset when neither is provided', () => {
+    loadEnv(FAKE_CALLER_URL);
+
+    expect(process.env.DEV_ENVIRONMENT_TYPE).toBeUndefined();
   });
 });

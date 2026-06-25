@@ -350,3 +350,133 @@ describe('extractModelFromFilePath', () => {
     expect(extractModelFromFilePath('')).toBeNull();
   });
 });
+
+// ─── isStaticallyConfigured ───────────────────────────────────────────────────
+
+describe('isStaticallyConfigured', () => {
+  it('returns true when modelName + workspacePath provided in file config', async () => {
+    const mgr = makeManager({ modelName: 'TestModel', workspacePath: 'K:\\AosService\\PackagesLocalDirectory' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+  });
+
+  it('returns true when modelName + packagePath provided in file config', async () => {
+    const mgr = makeManager({ modelName: 'TestModel', packagePath: 'K:\\AosService\\PackagesLocalDirectory' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+  });
+
+  it('returns true when modelName + projectPath provided in file config', async () => {
+    const mgr = makeManager({ modelName: 'TestModel', projectPath: 'K:\\Projects\\TestModel.rnrproj' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+  });
+
+  it('returns true when modelName + solutionPath provided in file config', async () => {
+    const mgr = makeManager({ modelName: 'TestModel', solutionPath: 'K:\\Projects\\TestModel.sln' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+  });
+
+  it('returns true when modelName + customPackagesPath provided in file config', async () => {
+    const mgr = makeManager({ modelName: 'TestModel', customPackagesPath: 'K:\\AosService\\PackagesLocalDirectory' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+  });
+
+  it('returns false when modelName is present but no path', async () => {
+    const mgr = makeManager({ modelName: 'TestModel' });
+    expect(await mgr.isStaticallyConfigured()).toBe(false);
+  });
+
+  it('returns false when path is present but no modelName', async () => {
+    const mgr = makeManager({ workspacePath: 'K:\\AosService\\PackagesLocalDirectory' });
+    expect(await mgr.isStaticallyConfigured()).toBe(false);
+  });
+
+  it('returns false when config is empty', async () => {
+    const mgr = makeManager({});
+    expect(await mgr.isStaticallyConfigured()).toBe(false);
+  });
+
+  it('returns true when both provided via env vars', async () => {
+    process.env.D365FO_MODEL_NAME = 'TestModel';
+    process.env.D365FO_WORKSPACE_PATH = 'K:\\AosService\\PackagesLocalDirectory';
+    const mgr = makeManager({});
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+    delete process.env.D365FO_MODEL_NAME;
+    delete process.env.D365FO_WORKSPACE_PATH;
+  });
+
+  it('returns true when modelName from env var, path from file config', async () => {
+    process.env.D365FO_MODEL_NAME = 'TestModel';
+    const mgr = makeManager({ workspacePath: 'K:\\AosService\\PackagesLocalDirectory' });
+    expect(await mgr.isStaticallyConfigured()).toBe(true);
+    delete process.env.D365FO_MODEL_NAME;
+  });
+
+  it('returns false when only D365FO_MODEL_NAME env var is set', async () => {
+    process.env.D365FO_MODEL_NAME = 'TestModel';
+    const mgr = makeManager({});
+    expect(await mgr.isStaticallyConfigured()).toBe(false);
+    delete process.env.D365FO_MODEL_NAME;
+  });
+});
+
+// ─── getWorkspaceInfoDiagnostics — provenance labels ─────────────────────────
+
+describe('getWorkspaceInfoDiagnostics provenance', () => {
+  beforeEach(() => {
+    vi.stubEnv('DEV_ENVIRONMENT_TYPE', '');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('labels packageSource as env var when D365FO_PACKAGE_PATH is set', async () => {
+    process.env.D365FO_PACKAGE_PATH = 'K:\\AosService\\PackagesLocalDirectory';
+    const mgr = makeManager({});
+    (mgr as any).xppConfigLoaded = true;
+    (mgr as any).xppConfig = null;
+
+    const diag = await mgr.getWorkspaceInfoDiagnostics();
+    expect(diag.packageSource).toBe('D365FO_PACKAGE_PATH env var');
+    delete process.env.D365FO_PACKAGE_PATH;
+  });
+
+  it('labels packageSource as .mcp.json when packagePath comes from file config only', async () => {
+    const mgr = makeManager({ packagePath: 'K:\\AosService\\PackagesLocalDirectory' });
+    (mgr as any).xppConfigLoaded = true;
+    (mgr as any).xppConfig = null;
+
+    const diag = await mgr.getWorkspaceInfoDiagnostics();
+    expect(diag.packageSource).toBe('.mcp.json');
+  });
+
+  it('returns customPackagesPath and its source from env var', async () => {
+    process.env.D365FO_CUSTOM_PACKAGES_PATH = 'C:\\repos\\MyProject\\src\\Metadata';
+    const mgr = makeManager({});
+    (mgr as any).xppConfigLoaded = true;
+    (mgr as any).xppConfig = null;
+
+    const diag = await mgr.getWorkspaceInfoDiagnostics();
+    expect(diag.customPackagesPath).toBe('C:\\repos\\MyProject\\src\\Metadata');
+    expect(diag.customPackagesSource).toBe('D365FO_CUSTOM_PACKAGES_PATH env var');
+    delete process.env.D365FO_CUSTOM_PACKAGES_PATH;
+  });
+
+  it('returns customPackagesPath and its source from .mcp.json', async () => {
+    const mgr = makeManager({ customPackagesPath: 'C:\\repos\\MyProject\\src\\Metadata' });
+    (mgr as any).xppConfigLoaded = true;
+    (mgr as any).xppConfig = null;
+
+    const diag = await mgr.getWorkspaceInfoDiagnostics();
+    expect(diag.customPackagesPath).toBe('C:\\repos\\MyProject\\src\\Metadata');
+    expect(diag.customPackagesSource).toBe('.mcp.json');
+  });
+
+  it('returns null customPackagesPath when neither env var nor config is set', async () => {
+    const mgr = makeManager({});
+    (mgr as any).xppConfigLoaded = true;
+    (mgr as any).xppConfig = null;
+
+    const diag = await mgr.getWorkspaceInfoDiagnostics();
+    expect(diag.customPackagesPath).toBeNull();
+    expect(diag.customPackagesSource).toBe('(not configured)');
+  });
+});

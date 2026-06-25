@@ -9,8 +9,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { autoDetectD365Project, detectD365Project, scanAllD365Projects, extractModelNameFromProject, detectGitBranch, isMicrosoftDemoModel, type D365ProjectInfo } from './workspaceDetector.js';
-import { registerCustomModel } from './modelClassifier.js';
+import { registerCustomModel, getCustomModels } from './modelClassifier.js';
 import { XppConfigProvider, type XppEnvironmentConfig } from './xppConfigProvider.js';
+import { debugLog } from './logger.js';
 
 export interface McpContext {
   workspacePath?: string;
@@ -53,6 +54,9 @@ class ConfigManager {
   private config: McpConfig | null = null;
   private configPath: string;
   private runtimeContext: Partial<McpContext> = {};
+  // Guards the one-time registration of explicitly-configured custom models
+  // (the resolved target model + any CUSTOM_MODELS entries) performed in ensureLoaded().
+  private configuredModelsRegistered = false;
   /**
    * Per-request context storage — isolates each HTTP request's workspace path
    * from concurrent requests. Populated via runWithRequestContext() in transport.ts.
@@ -102,27 +106,29 @@ class ConfigManager {
     const solutionsRoot = process.env.D365FO_SOLUTIONS_PATH;
     if (!solutionsRoot || this.allDetectedProjectsReady) return;
 
-    console.error(`[ConfigManager] 🔍 Eager project scan starting: ${solutionsRoot}`);
+    debugLog(`[ConfigManager] 🔍 Eager project scan starting: ${solutionsRoot}`);
     this.allDetectedProjectsReady = (async () => {
       try {
         const all = await scanAllD365Projects(solutionsRoot);
         if (all.length > 0) {
           this.allDetectedProjects = all;
-          // Compact summary: group by model, then list counts + first project path per model
+          // Compact summary: group by model, then list counts + first project path per model.
+          // Operational/info only — gated behind DEBUG_LOGGING so it doesn't surface as
+          // dozens of "[server stderr]" warnings in the MCP client on every startup.
           const byModel = new Map<string, string[]>();
           for (const p of all) {
             const list = byModel.get(p.modelName) ?? [];
             if (p.projectPath) list.push(p.projectPath);
             byModel.set(p.modelName, list);
           }
-          console.error(
+          debugLog(
             `[ConfigManager] 🔍 Eager scan complete: ${all.length} project(s) across ${byModel.size} model(s)`
           );
           for (const [model, paths] of byModel) {
-            console.error(`   ${model}: ${paths.length} project(s)  (first: ${paths[0]})`);
+            debugLog(`   ${model}: ${paths.length} project(s)  (first: ${paths[0]})`);
           }
         } else {
-          console.error(`[ConfigManager] 🔍 Eager scan: no projects found under ${solutionsRoot}`);
+          debugLog(`[ConfigManager] 🔍 Eager scan: no projects found under ${solutionsRoot}`);
         }
       } catch (err) {
         console.error(`[ConfigManager] 🔍 Eager scan failed:`, err);
@@ -197,7 +203,11 @@ class ConfigManager {
     // discard this (now stale) result so we never overwrite a more recent correct answer.
     const isStale = generation !== undefined && generation < this.detectionGeneration;
     if (isStale) {
-      console.error(`[ConfigManager] ⚠️ Stale workspace detection (gen ${generation} < current ${this.detectionGeneration}) — skipping project assignment`);
+      // Benign race-guard: a newer detection (e.g. roots/list arriving after the
+      // initial workspace seed) superseded this one, so we discard the stale result.
+      // Expected during normal startup — gated behind DEBUG_LOGGING so it doesn't
+      // surface as a client-facing warning.
+      debugLog(`[ConfigManager] ⚠️ Stale workspace detection (gen ${generation} < current ${this.detectionGeneration}) — skipping project assignment`);
       // Do NOT return early: D365FO_SOLUTIONS_PATH scan below must still run so
       // that allDetectedProjects is populated for future matchProjectForWorkspace calls.
     } else if (detectedProject) {
@@ -595,6 +605,30 @@ class ConfigManager {
    */
   async ensureLoaded(): Promise<void> {
     await this.load();
+
+    // Register the explicitly-configured custom models exactly once. The target
+    // model resolved from configuration (D365FO_MODEL_NAME env var or a modelName
+    // key in .mcp.json) is custom by definition, as are any CUSTOM_MODELS entries.
+    // Registering them here makes isCustomModel() deterministic regardless of call
+    // ordering — without it, a long model name whose ISV prefix is only an
+    // abbreviation (e.g. prefix "CR" for "ContosoRobotics") is misclassified as a
+    // Microsoft standard model until some later operation happens to register it.
+    if (!this.configuredModelsRegistered) {
+      this.configuredModelsRegistered = true;
+
+      const configuredModel = this.getContext()?.modelName?.trim();
+      if (configuredModel) {
+        registerCustomModel(configuredModel);
+      }
+
+      // CUSTOM_MODELS literals (wildcard patterns are matched directly by
+      // isCustomModel, so they don't need to be registered as exact names).
+      for (const entry of getCustomModels()) {
+        if (!entry.includes('*')) {
+          registerCustomModel(entry);
+        }
+      }
+    }
   }
 
   /**
@@ -656,6 +690,33 @@ class ConfigManager {
    */
   hasRequestContext(): boolean {
     return this.requestContextStorage.getStore() !== undefined;
+  }
+
+  /**
+   * Returns true when the static configuration (`.mcp.json` + `D365FO_*` env vars)
+   * already provides enough workspace context to work without calling `roots/list`.
+   *
+   * In instanced mode every project has its own dedicated server instance whose
+   * config contains both a model name and at least one path. Calling `roots/list`
+   * is then unnecessary and causes a -32001 timeout when `mcp-remote` is the
+   * transport (it has a hard-coded 60 s request timeout and cannot complete a
+   * server-initiated request over HTTP). In instanced mode the workspace is also
+   * immutable per instance, so `roots_list_changed` notifications are irrelevant.
+   *
+   * Awaits `ensureLoaded()` so it is safe to call before the first tool invocation.
+   */
+  async isStaticallyConfigured(): Promise<boolean> {
+    await this.ensureLoaded();
+    const ctx = this.getContext();
+    const hasModelName = !!ctx?.modelName;
+    const hasPath = !!(
+      ctx?.workspacePath ||
+      ctx?.packagePath   ||
+      ctx?.customPackagesPath ||
+      ctx?.projectPath   ||
+      ctx?.solutionPath
+    );
+    return hasModelName && hasPath;
   }
 
   /**
@@ -814,7 +875,24 @@ class ConfigManager {
     const context = this.getContext();
 
     if (context?.modelName) {
-      return { modelName: context.modelName, source: '.mcp.json' };
+      // getContext() merges three sources with precedence runtime > env var > file.
+      // Report the one that actually produced the value, so the diagnostics don't
+      // send the developer looking in .mcp.json for a value that came from the
+      // D365FO_MODEL_NAME environment variable.
+      const fileContext = this.config?.context || this.config?.servers?.context || null;
+      const requestModel = this.requestContextStorage.getStore()?.modelName;
+      const runtimeModel = requestModel ?? this.runtimeContext.modelName;
+      const envModel = process.env.D365FO_MODEL_NAME?.trim() || undefined;
+
+      let source = '.mcp.json';
+      if (runtimeModel) {
+        source = 'runtime context (from VS / VS Code)';
+      } else if (envModel) {
+        source = 'D365FO_MODEL_NAME env var';
+      } else if (fileContext?.modelName) {
+        source = '.mcp.json';
+      }
+      return { modelName: context.modelName, source };
     }
 
     const wp = context?.workspacePath;
@@ -829,11 +907,6 @@ class ConfigManager {
       return { modelName: this.autoDetectedProject.modelName, source: 'auto-detected from .rnrproj' };
     }
 
-    const envVar = process.env.D365FO_MODEL_NAME || null;
-    if (envVar) {
-      return { modelName: envVar, source: 'D365FO_MODEL_NAME env var' };
-    }
-
     return { modelName: null, source: '(not configured)' };
   }
 
@@ -845,10 +918,13 @@ class ConfigManager {
   async getWorkspaceInfoDiagnostics(): Promise<{
     modelName: string | null;
     modelSource: string;
+    isModelSourceAutoDetected: boolean;
     projectPath: string | null;
     projectSource: string;
     packagePath: string | null;
     packageSource: string;
+    customPackagesPath: string | null;
+    customPackagesSource: string;
   }> {
     // Ensure config is loaded and auto-detection has had a chance to run
     await this.ensureLoaded();
@@ -894,13 +970,23 @@ class ConfigManager {
       projectSource = 'auto-detected from .rnrproj';
     }
 
-    // Package path
+    // Package path (MS framework / standard packages — read-only reference root)
     const packagePath = this.getPackagePath();
     let packageSource = '(not configured)';
 
     const context = this.getContext();
+    const fileContext = this.config?.context || this.config?.servers?.context || null;
+
     if (context?.packagePath) {
-      packageSource = '.mcp.json';
+      // getContext() merges env vars with higher priority than .mcp.json.
+      // Report the actual source so diagnostics don't mislead the developer.
+      if (process.env.D365FO_PACKAGE_PATH?.trim()) {
+        packageSource = 'D365FO_PACKAGE_PATH env var';
+      } else if (fileContext?.packagePath) {
+        packageSource = '.mcp.json';
+      } else {
+        packageSource = 'env var';
+      }
     } else if (context?.workspacePath && /PackagesLocalDirectory/i.test(context.workspacePath)) {
       packageSource = 'workspacePath';
     } else if (this.autoDetectedProject?.packagePath) {
@@ -909,7 +995,28 @@ class ConfigManager {
       packageSource = 'well-known path probe';
     }
 
-    return { modelName, modelSource, projectPath, projectSource, packagePath, packageSource };
+    // Custom write path (D365FO_CUSTOM_PACKAGES_PATH / customPackagesPath in context)
+    // — this is the repo working tree where custom model XML is written and tracked by git.
+    const customPackagesPath = await this.getCustomPackagesPath();
+    let customPackagesSource = '(not configured)';
+
+    if (customPackagesPath) {
+      if (process.env.D365FO_CUSTOM_PACKAGES_PATH?.trim()) {
+        customPackagesSource = 'D365FO_CUSTOM_PACKAGES_PATH env var';
+      } else if (fileContext?.customPackagesPath) {
+        customPackagesSource = '.mcp.json';
+      } else {
+        customPackagesSource = 'XPP config auto-detection';
+      }
+    }
+
+    const isModelSourceAutoDetected = modelSource.includes('auto-detected');
+    return {
+      modelName, modelSource, isModelSourceAutoDetected,
+      projectPath, projectSource,
+      packagePath, packageSource,
+      customPackagesPath, customPackagesSource,
+    };
   }
 
   /**
@@ -1110,6 +1217,15 @@ class ConfigManager {
     // Priority 2: XPP config auto-detection
     await this.ensureXppConfig();
     return this.xppConfig?.microsoftPackagesPath || null;
+  }
+
+  /**
+   * Get the full active XPP environment config, including ReferencePackagesPaths.
+   * Returns null when no XPP config exists (CHE / non-UDE environment).
+   */
+  async getActiveXppConfig(): Promise<XppEnvironmentConfig | null> {
+    await this.ensureXppConfig();
+    return this.xppConfig;
   }
 
   /**
