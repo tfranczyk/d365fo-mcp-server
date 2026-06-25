@@ -5,7 +5,7 @@
 This instruction deploys the MCP server as a **hybrid**:
 
 - **Azure App Service** hosts the **read-only** MCP — shared search / read tools for the whole team.
-- **Local write-only companion** runs on each developer's VM as a stdio MCP — exposes `create_d365fo_file`, `modify_d365fo_file`, `create_label`, `build_d365fo_project`, `run_bp_check`, `trigger_db_sync`, `run_systest_class`, etc.
+- **Local write-only companion** runs on each developer's VM as a stdio MCP — exposes `d365fo_file` (action=create/modify/generate), `labels` (action=create/rename), `build_d365fo_project`, `run_bp_check`, `trigger_db_sync`, `run_systest_class`, etc.
 
 Claude Code, Copilot for GitHub in VS Code (and VS 2022, but we're avoiding it) sees **both servers simultaneously**. Read-heavy queries go to Azure; any write/edit of `.xml` / `.xpp` / labels / project files goes through the local companion — the one tool chain that safely touches AOT XML and `.rnrproj`.
 
@@ -17,7 +17,7 @@ Current implementation scope:
 
 `d365fo-cli` is intentionally out of scope for this first rollout. Treat it as a later evaluation path, not a dependency for the hybrid MCP setup below.
 
-**Why not "just Azure + built-in AI edits"?** `CLAUDE.md` / `.github\copilot-instructions.md` (placed in Part D) forbids built-in editors on `.xml` / `.xpp` files. AOT objects must be created through `create_d365fo_file` / `modify_d365fo_file` so XML structure, `.rnrproj` entries, model prefixes, label files, and encoding stay consistent.
+**Why not "just Azure + built-in AI edits"?** `CLAUDE.md` / `.github\copilot-instructions.md` (placed in Part D) forbids built-in editors on `.xml` / `.xpp` files. AOT objects must be created through `d365fo_file` (action=create/modify) so XML structure, `.rnrproj` entries, model prefixes, label files, and encoding stay consistent.
 
 D365FnO MCP for X++ will:
 1) answer questions about your code (from Azure — shared)
@@ -307,7 +307,7 @@ Layers your **custom models** (from the Azure DevOps Git repo) on top of the sta
 
 This pipeline does **not** use the `packages` container — it reads sources straight from the Git repo (`checkout: self`) and merges into the existing DB by downloading it first from blob storage.
 
-After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* `create_d365fo_file`, `modify_d365fo_file`, `create_label`, build/sync/BP/test, which only exist on the local companion).
+After it finishes (and auto-restarts the App Service), re-hit `/health` — tool count should now match full **read-only** mode (all tools *except* the write actions of `d365fo_file` / `labels` and build/sync/BP/test, which only exist on the local companion).
 
 ## C5. Schedule daily custom metadata refresh
 Set a daily schedule for `d365fo-mcp-data-extract-and-build-custom` in Azure DevOps after the first successful manual run.
@@ -348,7 +348,7 @@ cd d365fo-mcp-server
 npm install
 ```
 
-Build the C# bridge. This is mandatory for local write tools such as `create_d365fo_file` and `modify_d365fo_file`.
+Build the C# bridge. This is mandatory for local write tools such as `d365fo_file` (action=create/modify).
 ```powershell
 cd bridge\D365MetadataBridge
 dotnet build -c Release -p:D365BinPath="J:\AosService\PackagesLocalDirectory\bin"
@@ -471,7 +471,7 @@ Restart VS Code after the first config change. `Ctrl+Shift+N` for a fresh window
 Open a new chat and ask:
 
 1. `What tables contain a CustAccount field?` — should route to **d365fo-mcp-azure** (read).
-2. `Add a field MyNewField (type: CustAccount) to CustTable in model MyPackage.` — should route to **d365fo-mcp-local** (`modify_d365fo_file`).
+2. `Add a field MyNewField (type: CustAccount) to CustTable in model MyPackage.` — should route to **d365fo-mcp-local** (`d365fo_file` action=modify).
 
 If the AI uses built-in file edit tools instead of calling the local MCP, the project instructions file (D4) is not in scope:
 - **Claude Code:** verify `CLAUDE.md` is in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root.
@@ -505,6 +505,6 @@ If the AI uses built-in file edit tools instead of calling the local MCP, the pr
 **Local write-only companion:**
 - **Claude Code** doesn't see local tools → plugin not loaded (`claude --plugin-dir` not run), a required env var is missing or not visible to VS Code (restart after `setenv`), or Node not in Path. Check with `node -v` in a VS Code-launched terminal. Run `claude mcp list` to verify plugin servers are registered.
 - **Copilot** doesn't see local tools → `.mcp.json` path/quotes wrong, or Node not in Path. Check with `node -v` in the same terminal context VS Code runs under.
-- `modify_d365fo_file` errors "requires file system access" → you accidentally pointed it at Azure URL. Server name in tool call should match `d365fo-mcp-local`.
+- `d365fo_file` (action=modify) errors "requires file system access" → you accidentally pointed it at Azure URL. Server name in tool call should match `d365fo-mcp-local`.
 - Changes made but not visible to Azure search → expected. Azure DB is rebuilt only by the sync workflows (local platform build and/or Azure pipelines). Run `d365fo-mcp-data-extract-and-build-custom` after significant local changes if the team needs search to catch up.
 - Bridge build fails → wrong `D365BinPath`. Point it at the `bin` folder inside `PackagesLocalDirectory`.
