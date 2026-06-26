@@ -483,7 +483,7 @@ If the AI uses built-in file edit tools instead of calling the local MCP, the pr
 
 | Event | Azure side | Local companion |
 |---|---|---|
-| Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | `git pull` + `npm install` + `npm run build` <br> consider updating the skills with the steps D4 and D5 |
+| Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | Close the editor → `git pull` + `npm install` + `npm run build` → rebuild the C# bridge (D1) if `bridge/` changed → reopen the editor. <br> Refresh skills/instructions (D4–D5) if they changed. |
 | Your custom models changed | Run or wait for scheduled `d365fo-mcp-data-extract-and-build-custom` + restart App Service | — |
 | D365FO version upgrade / hotfix | Run local `scripts/local/build-platform-metadata-local.ps1`, then `d365fo-mcp-data-extract-and-build-custom` | Rebuild the C# bridge against the new `bin` folder |
 | New developer joins | Nothing | Follow Part D + E |
