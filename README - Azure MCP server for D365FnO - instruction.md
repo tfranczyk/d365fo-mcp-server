@@ -481,6 +481,25 @@ If the AI uses built-in file edit tools instead of calling the local MCP, the pr
 
 # Part F — Ongoing maintenance
 
+When the server code changes on `main`, run the following commands on your local VM to comprehensively update your local companion. 
+
+> ⚠️ **Note:** Be sure to change the `D365BinPath` in the `dotnet build` command to point to your actual `PackagesLocalDirectory\bin`!
+
+```powershell
+cd C:\Repos\d365fo-mcp-server
+git pull
+npm install
+npm run build
+ 
+# Rebuild the C# bridge (CHANGE the bin path to YOUR PackagesLocalDirectory)
+cd bridge\D365MetadataBridge
+dotnet build -c Release -p:D365BinPath="C:\AosService\PackagesLocalDirectory\bin"
+cd ..\..
+
+# Update project instructions
+Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.md"
+```
+
 | Event | Azure side | Local companion |
 |---|---|---|
 | Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | `git pull` + `npm install` + `npm run build` <br> consider updating the skills with the steps D4 and D5 |
