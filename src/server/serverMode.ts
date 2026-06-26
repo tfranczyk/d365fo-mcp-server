@@ -19,9 +19,9 @@
  *  2. They do NOT need the symbol database — they skip the dbReady await.
  *  3. They are the tools available in 'write-only' (local companion) mode.
  *
- * The set also includes the bridge-backed READ surface (get_object_info, get_method_source,
- * get_method_signature) which works in write-only mode via IMetadataProvider — no SQLite needed.
- * This allows Copilot to verify objects it just created without an Azure re-deploy.
+ * The bridge-backed READ surface (get_object_info, get_method) is NOT here — it
+ * lives in ALWAYS_TOOLS so it stays available in every mode. Those readers have a
+ * SQLite fallback, so they also serve from the compiled cloud DB on read-only Azure.
  *
  * - Excluded in 'read-only' mode (Azure deployment can't access local K:\ paths)
  * - The only tools exposed in 'write-only' mode (lightweight local companion)
@@ -49,12 +49,9 @@ export const LOCAL_TOOLS = new Set([
   'review_workspace_changes',
   'undo_last_modification',
   'get_workspace_info',
-  // Bridge-backed member reader: works in write-only mode via IMetadataProvider
-  // (no SQLite needed — bridge reads directly from disk). get_method unifies the
-  // former get_method_signature + get_method_source via the `include` discriminator.
-  // The bridge-backed OBJECT readers (class/table/form/…) are now reached through
-  // get_object_info, which is in ALWAYS_TOOLS so it stays available in every mode.
-  'get_method',
+  // NOTE: get_method moved to ALWAYS_TOOLS — its full fallback chain
+  // (bridge → XML → SQLite source/signature column) now serves method bodies
+  // from the compiled cloud DB, so it works on read-only Azure too.
 ]);
 
 /**
@@ -70,6 +67,12 @@ export const LOCAL_TOOLS = new Set([
  */
 export const ALWAYS_TOOLS = new Set([
   'get_object_info',
+  // get_method has a full fallback chain (bridge → XML → SQLite source/signature
+  // column). The bridge/XML paths need the local VM + K:\; the SQLite path reads
+  // the full method body straight from the compiled cloud DB, so the source and
+  // signature aspects work on read-only Azure too. Published in every mode like
+  // get_object_info rather than gated to the local companion.
+  'get_method',
   // `labels` mixes read (search/info) and write (create/rename) actions.
   // The read actions must work on Azure read-only; the write actions need K:\
   // access and are gated at runtime by the underlying handler returning a clear

@@ -30,7 +30,15 @@ export async function getMethodSourceTool(request: CallToolRequest, context: Xpp
     const xmlResult = await tryXmlMethodSource(context, className, methodName);
     if (xmlResult) return xmlResult;
 
-    // Bridge and XML both unavailable — try fuzzy name suggestions from SQLite
+    // SQLite source-column fallback — the compiled cloud DB stores the full X++
+    // method body in symbols.source, so read it directly when both the C# bridge
+    // (VM) and the XML file (K:\) are unavailable. This is what makes get_method
+    // usable on the read-only Azure deployment; mirrors the SQLite signature
+    // fallback in methodSignature.ts.
+    const dbResult = tryDbMethodSource(context, className, methodName);
+    if (dbResult) return dbResult;
+
+    // Bridge, XML, and DB source all unavailable — try fuzzy name suggestions from SQLite
     let hint = '';
     try {
       const db = context.symbolIndex.getReadDb();
@@ -69,6 +77,45 @@ export async function getMethodSourceTool(request: CallToolRequest, context: Xpp
       isError: true,
     };
   }
+}
+
+/**
+ * SQLite source-column fallback for the method body.
+ * Works on the read-only Azure deployment (no C# bridge, no K:\ on disk) because
+ * the compiled cloud DB stores the full X++ body in symbols.source. Returns null
+ * to signal fallthrough when the column is empty or the DB is unavailable.
+ */
+function tryDbMethodSource(
+  context: XppServerContext,
+  className: string,
+  methodName: string,
+): { content: Array<{ type: 'text'; text: string }>; isError?: boolean } | null {
+  let row: { source?: string | null } | undefined;
+  try {
+    const rdb = context.symbolIndex.getReadDb();
+    row = rdb.prepare(
+      `SELECT source FROM symbols
+       WHERE type = 'method' AND parent_name = ? AND name = ? COLLATE NOCASE
+         AND source IS NOT NULL AND source != ''
+       ORDER BY model
+       LIMIT 1`
+    ).get(className, methodName) as { source?: string | null } | undefined;
+  } catch { /* DB not available */ }
+
+  if (!row?.source) return null;
+
+  const obsoleteMatch = row.source.match(/\[\s*SysObsolete\s*\(\s*['"]([^'"]*)['"]/i)
+    ?? row.source.match(/\[\s*Obsolete\s*\(\s*['"]([^'"]*)['"]/i);
+  const obsoleteWarning = obsoleteMatch
+    ? `\n\n> ⚠️ **This method is marked obsolete.** Do NOT generate calls to it.\n> Replacement hint from the attribute: _"${obsoleteMatch[1]}"_\n> Read the hint above and use the stated replacement instead.`
+    : '';
+
+  const text =
+    `## ${className}.${methodName}\n\n` +
+    `_Source: SQLite symbol index (bridge & XML unavailable — read-only mode)_\n` +
+    obsoleteWarning +
+    `\n\`\`\`xpp\n${row.source}\n\`\`\``;
+  return { content: [{ type: 'text', text }] };
 }
 
 /**

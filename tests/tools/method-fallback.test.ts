@@ -383,12 +383,16 @@ describe('get_method_source fallback chain', () => {
   it('handles XML parser timeout gracefully', async () => {
     mockTryBridgeMethodSource.mockResolvedValueOnce(null);
 
-    const stmt = {
-      get: vi.fn().mockReturnValueOnce({ file_path: '/Classes/TestClass.xml', model: 'TestModel', type: 'class' }),
+    // stmt0: XML class lookup → class row (parser then hangs → null)
+    // stmt1: DB source-column fallback → no source → null
+    const stmtClass = {
+      get: vi.fn(() => ({ file_path: '/Classes/TestClass.xml', model: 'TestModel', type: 'class' })),
       all: vi.fn(() => []),
       run: vi.fn(),
     };
-    ctx.symbolIndex.db.prepare = vi.fn(() => stmt) as any;
+    const stmtNoSource = { get: vi.fn(() => undefined), all: vi.fn(() => []), run: vi.fn() };
+    let c = 0;
+    ctx.symbolIndex.db.prepare = vi.fn(() => (c++ === 0 ? stmtClass : stmtNoSource)) as any;
 
     // Parser hangs
     (ctx.parser.parseClassFile as any).mockImplementationOnce(
@@ -402,5 +406,39 @@ describe('get_method_source fallback chain', () => {
     // Should not hang — should fall through to error path
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/not found/i);
+  });
+
+  it('falls back to SQLite source column when bridge and XML both fail', async () => {
+    mockTryBridgeMethodSource.mockResolvedValueOnce(null);
+    // stmtClass: XML class lookup → none (XML returns null); stmtSource: source column → body
+    const stmtClass = { get: vi.fn(() => undefined), all: vi.fn(() => []), run: vi.fn() };
+    const stmtSource = { get: vi.fn(() => ({ source: SAMPLE_SOURCE })), all: vi.fn(() => []), run: vi.fn() };
+    let c = 0;
+    ctx.symbolIndex.db.prepare = vi.fn(() => (c++ === 0 ? stmtClass : stmtSource)) as any;
+
+    const result = await getMethodSourceTool(
+      req('get_method_source', { className: 'TestClass', methodName: 'run' }),
+      ctx,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('info("Hello")');
+    expect(result.content[0].text).toMatch(/SQLite/i);
+  });
+
+  it('detects obsolete methods in SQLite source fallback', async () => {
+    mockTryBridgeMethodSource.mockResolvedValueOnce(null);
+    const obsoleteSource = "[SysObsolete('Use runV2 instead')]\npublic void run()\n{\n}";
+    const stmtClass = { get: vi.fn(() => undefined), all: vi.fn(() => []), run: vi.fn() };
+    const stmtSource = { get: vi.fn(() => ({ source: obsoleteSource })), all: vi.fn(() => []), run: vi.fn() };
+    let c = 0;
+    ctx.symbolIndex.db.prepare = vi.fn(() => (c++ === 0 ? stmtClass : stmtSource)) as any;
+
+    const result = await getMethodSourceTool(
+      req('get_method_source', { className: 'TestClass', methodName: 'run' }),
+      ctx,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toMatch(/obsolete/i);
+    expect(result.content[0].text).toContain('runV2');
   });
 });

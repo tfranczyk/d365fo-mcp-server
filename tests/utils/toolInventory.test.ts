@@ -40,8 +40,10 @@ describe('tool inventory contract', () => {
       expect(publishedTools.has(toolName)).toBe(true);
     }
 
-    expect(LOCAL_TOOLS.size).toBe(11);
-    expect(mcpServerToolNames.filter(name => !LOCAL_TOOLS.has(name))).toHaveLength(16);
+    // get_method moved to ALWAYS_TOOLS (works on read-only Azure via the SQLite
+    // source/signature fallback), so it's no longer counted among LOCAL_TOOLS.
+    expect(LOCAL_TOOLS.size).toBe(10);
+    expect(mcpServerToolNames.filter(name => !LOCAL_TOOLS.has(name))).toHaveLength(17);
   });
 
   it('has a tool annotation (title + hints) for every published tool', () => {
