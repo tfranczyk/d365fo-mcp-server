@@ -19,6 +19,12 @@ WHAT IT DOES (each step is skipped if already done):
     - d365fo-mcp-azure (read), d365fo-mcp-local (write companion), ado-remote-mcp
     - surgically replaces ONLY the mcpServers block, leaving every other byte intact
 
+  Editor integration
+    - installs the Claude Code CLI (npm -g) AND the VS Code extension
+    - creates a desktop shortcut that opens the code base in VS Code under a
+      named VS Code profile:  Code.exe --new-window "<folder>" --profile "<name>"
+      (folder = the symlink/custom-packages path if set, else PackagesLocalDirectory)
+
 PROFILES (switching between custom-model code bases)
 
   Each named profile - typically your VS Code profile name - stores its own
@@ -60,6 +66,7 @@ PARAMETERS
                       Also lets the script run without elevation (no installs).
   -NoClone            Do not auto git-clone when RepoPath is missing (just fail).
   -NoInstructionFiles Skip copying CLAUDE.md into the repo's parent folder.
+  -NoShortcut         Skip creating the VS Code desktop shortcut.
 #>
 
 param(
@@ -70,7 +77,8 @@ param(
     [string]$ProfileStore = "",
     [switch]$SkipPrereqs,
     [switch]$NoClone,
-    [switch]$NoInstructionFiles
+    [switch]$NoInstructionFiles,
+    [switch]$NoShortcut
 )
 
 Set-StrictMode -Off
@@ -174,6 +182,51 @@ function Ensure-Prerequisites {
     Ensure-Tool -Command "git"    -D365Name "git"    -WingetId "Git.Git"               -Label "Git"
     Ensure-Tool -Command "node"   -D365Name "nodejs" -WingetId "OpenJS.NodeJS.LTS"     -Label "Node.js"
     Ensure-Tool -Command "dotnet" -D365Name ""       -WingetId "Microsoft.DotNet.SDK.8" -Label ".NET SDK"
+    Write-Host ""
+}
+
+function Resolve-CodeExe {
+    # Locate VS Code's Code.exe (needed both for --install-extension and for the
+    # desktop shortcut target). Checks the usual install locations, then derives
+    # it from the 'code' shim on PATH.
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code\Code.exe"),
+        (Join-Path $env:ProgramFiles "Microsoft VS Code\Code.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Microsoft VS Code\Code.exe")
+    )
+    foreach ($c in $candidates) { if ($c -and (Test-Path $c)) { return $c } }
+    $cmd = Get-Command code -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) {
+        # ...\Microsoft VS Code\bin\code.cmd  ->  ...\Microsoft VS Code\Code.exe
+        $exe = Join-Path (Split-Path (Split-Path $cmd.Source -Parent) -Parent) "Code.exe"
+        if (Test-Path $exe) { return $exe }
+    }
+    return $null
+}
+
+function Ensure-ClaudeCode {
+    # Claude Code CLI (npm global) + the VS Code extension. Skip-if-present.
+    if (Get-Command claude -ErrorAction SilentlyContinue) {
+        Write-Skip "Claude Code CLI present"
+    } else {
+        Write-Step "Installing Claude Code CLI (npm -g @anthropic-ai/claude-code)"
+        try { Invoke-Native "npm" @("install", "-g", "@anthropic-ai/claude-code"); Update-SessionPath; Write-Ok "claude CLI installed" }
+        catch { Write-Host "    WARNING: claude CLI install failed: $($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        $installed = & code --list-extensions 2>$null
+        if ($installed -contains "anthropic.claude-code") {
+            Write-Skip "Claude Code VS Code extension present"
+        } else {
+            Write-Step "Installing the Claude Code VS Code extension"
+            try { & code --install-extension anthropic.claude-code --force | Out-Null; Write-Ok "Claude Code extension installed" }
+            catch { Write-Host "    WARNING: extension install failed: $($_.Exception.Message)" -ForegroundColor Yellow }
+        }
+    } else {
+        Write-Host "    WARNING: 'code' not on PATH - cannot install the VS Code extension." -ForegroundColor Yellow
+        Write-Host "             In VS Code run 'Shell Command: Install code command in PATH', then re-run." -ForegroundColor DarkGray
+    }
     Write-Host ""
 }
 
@@ -400,6 +453,7 @@ $labelLangs    = Ask "Label languages"                                 "LabelLan
 $azureUrl      = Ask "Azure MCP server URL (read-only)"                "AzureUrl" ""
 $azureApiKey   = Ask "Azure MCP API key (X-Api-Key)"                   "AzureApiKey" "" -Secret
 $adoOrg        = Ask "Azure DevOps organization name"                  "AdoOrg" "anegis"
+$vsCodeProfile = Ask "VS Code profile name (desktop shortcut opens VS Code under it)" "VSCodeProfile" $Profile
 
 # ===========================================================================
 # 3. Save the profile (idempotent; re-saving an unchanged switch is a no-op)
@@ -416,6 +470,7 @@ $profileObj = [ordered]@{
     AzureUrl           = $azureUrl
     AzureApiKey        = $azureApiKey
     AdoOrg             = $adoOrg
+    VSCodeProfile      = $vsCodeProfile
 }
 Write-Utf8NoBom -Path $profileFile -Text ($profileObj | ConvertTo-Json)
 Write-Host ""
@@ -558,6 +613,52 @@ if (Test-Path $configFile) {
 Write-Ok "MCP servers written for profile '$Profile'"
 
 # ===========================================================================
+# 5b. Claude Code editor integration (CLI + VS Code extension)
+# ===========================================================================
+# Full setup only - on a fast -Switch / -SkipPrereqs these are already in place.
+Write-Host ""
+if ($Switch -or $SkipPrereqs) {
+    Write-Skip "Claude Code CLI / VS Code extension check (fast switch / -SkipPrereqs)"
+} else {
+    Ensure-ClaudeCode
+}
+
+# ===========================================================================
+# 5c. Desktop shortcut - opens the code base in VS Code under this profile
+# ===========================================================================
+# Folder to open: the symlink/custom-packages path if set, else PackagesLocalDirectory.
+if (-not $NoShortcut) {
+    $openFolder = if ($customPkgPath) { $customPkgPath } else { $packagesPath }
+    $codeExe    = Resolve-CodeExe
+    if (-not $codeExe) {
+        Write-Host "  WARNING: VS Code (Code.exe) not found - skipped desktop shortcut." -ForegroundColor Yellow
+    } elseif (-not $vsCodeProfile) {
+        Write-Host "  WARNING: no VS Code profile name - skipped desktop shortcut." -ForegroundColor Yellow
+    } else {
+        Write-Step "Desktop shortcut for VS Code profile '$vsCodeProfile'"
+        $desktop = [Environment]::GetFolderPath('Desktop')
+        $lnkPath = Join-Path $desktop ("D365FO - $vsCodeProfile.lnk")
+        try {
+            $ws  = New-Object -ComObject WScript.Shell
+            $lnk = $ws.CreateShortcut($lnkPath)
+            $lnk.TargetPath       = $codeExe
+            $lnk.Arguments        = "--new-window `"$openFolder`" --profile `"$vsCodeProfile`""
+            $lnk.WorkingDirectory = Split-Path $codeExe -Parent
+            $lnk.IconLocation     = $codeExe
+            $lnk.Description       = "Open the D365FO code base for profile $vsCodeProfile in VS Code"
+            $lnk.Save()
+            Write-Ok "shortcut -> $lnkPath"
+            Write-Host "    opens: $openFolder   (--profile $vsCodeProfile)" -ForegroundColor DarkGray
+            if (-not (Test-Path $openFolder)) {
+                Write-Host "    NOTE: that folder does not exist yet - the shortcut will still open VS Code." -ForegroundColor DarkYellow
+            }
+        } catch {
+            Write-Host "  WARNING: could not create desktop shortcut: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
+# ===========================================================================
 # 6. Summary
 # ===========================================================================
 
@@ -577,9 +678,9 @@ if (-not $customModels){ Write-Host "  NOTE: CUSTOM_MODELS is empty for this pro
 
 Write-Host ""
 Write-Host "Next:" -ForegroundColor Cyan
-Write-Host "  1. Restart VS Code so Claude Code reloads $configFile." -ForegroundColor White
-Write-Host "  2. First time on this machine, load the plugin once:" -ForegroundColor White
-Write-Host "       npm install -g @anthropic-ai/claude-code" -ForegroundColor DarkGray
+Write-Host "  1. Open the code base via the new desktop shortcut 'D365FO - $vsCodeProfile'" -ForegroundColor White
+Write-Host "     (or restart VS Code so Claude Code reloads $configFile)." -ForegroundColor White
+Write-Host "  2. First time on this machine, load the skills plugin once:" -ForegroundColor White
 Write-Host "       claude --plugin-dir `"$repoPathVal\.github`"" -ForegroundColor DarkGray
 Write-Host "  3. Verify:  claude mcp list" -ForegroundColor White
 Write-Host ""

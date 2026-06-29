@@ -333,7 +333,9 @@ This runs on each developer's D365FO VM (the box with Visual Studio 2022 + `Pack
 
 ## D1. Run the setup script
 
-You do **not** clone anything by hand — the script clones the repo itself. On a fresh VM you only need PowerShell: download the script with `Invoke-RestMethod` (built in, no git required), then run it. It will install git/Node/.NET and clone the repo to `RepoPath` for you. From an **elevated** PowerShell (so the prerequisite installs can elevate), once per VM, with a profile name (use your VS Code profile name):
+> **⚠ Run PowerShell as Administrator.** The first run installs prerequisites (git / Node.js / .NET SDK), which needs elevation. Right-click PowerShell → **Run as administrator**. The script refuses to start a prerequisite-installing run unelevated (only the `-Switch` / `-SkipPrereqs` config-only paths run without admin).
+
+You do **not** clone anything by hand — the script clones the repo itself. On a fresh VM you only need PowerShell: download the script with `Invoke-RestMethod` (built in, no git required), then run it. It will install git/Node/.NET and clone the repo to `RepoPath` for you. From the **elevated** PowerShell, once per VM, with a profile name (use your VS Code profile name):
 
 ```powershell
 # Bootstrap: fetch just the script, then let it do everything (incl. the clone)
@@ -355,17 +357,18 @@ It prompts once (values are pre-filled on re-run) and then, skipping anything al
 3. **`npm install`**, then **builds the C# bridge** (`dotnet build -c Release` against your `PackagesLocalDirectory\bin` — mandatory for the `d365fo_file` write tools), then **`npm run build`** (TypeScript → `dist\index.js`).
 4. **Copies `CLAUDE.md`** into the repo's parent folder (e.g. `C:\Repos\CLAUDE.md`) so every repo opened underneath inherits the MCP tool rules. For a per-repo override, drop a `CLAUDE.md` in the repo root — Claude Code merges all files on the path (child wins).
 5. **Wires all three MCP servers** (`d365fo-mcp-azure` read, `d365fo-mcp-local` write companion, `ado-remote-mcp`) into `%USERPROFILE%\.claude.json`, surgically replacing only the `mcpServers` block with actual values.
+6. **Installs the Claude Code CLI** (`npm -g @anthropic-ai/claude-code`) **and the Claude Code VS Code extension** (`anthropic.claude-code`).
+7. **Creates a desktop shortcut** that opens the code base in VS Code under a named VS Code profile — `Code.exe --new-window "<folder>" --profile "<name>"`. The folder is the symlink/custom-packages path if you set one, otherwise `PackagesLocalDirectory`. You choose the profile name when prompted (defaults to the `-Profile` value).
 
 You never run `node dist/index.js` yourself — VS Code spawns the companion per session. You also do **not** need `npm run extract-metadata` / `build-database` locally: in `write-only` mode the companion skips the cloud DB, and read queries hit Azure.
 
-Flags: `-Rebuild` forces npm/bridge/TS rebuild (use after a D365FO version upgrade); `-SkipPrereqs` skips the install check; `-RepoPath` / `-ProfileStore` override locations; `-NoClone` / `-NoInstructionFiles` opt out of those steps.
+Flags: `-Rebuild` forces npm/bridge/TS rebuild (use after a D365FO version upgrade); `-SkipPrereqs` skips the install check; `-RepoPath` / `-ProfileStore` override locations; `-NoClone` / `-NoInstructionFiles` / `-NoShortcut` opt out of those steps.
 
 ## D2. Load the Claude Code plugin (skills) — once per machine
 
-The `ang-xpp-dev` skill (X++ coding standards + naming conventions) ships as a Claude Code plugin in `.github\` of the repo:
+The CLI and VS Code extension are installed by the setup script (D1, steps 6–7). The one remaining manual step is loading the **skills plugin** — the `ang-xpp-dev` skill (X++ coding standards + naming conventions) shipped in `.github\` of the repo:
 
 ```powershell
-npm install -g @anthropic-ai/claude-code
 claude --plugin-dir "C:\Repos\d365fo-mcp-server\.github"
 ```
 
@@ -383,7 +386,7 @@ Restart VS Code after a switch. The same `-Switch` form is the fast way to rotat
 
 ## D4. Verify
 
-1. Restart VS Code (`Ctrl+Shift+N` for a fresh window), open your D365FO repo, and approve the **trust** prompt for all three servers on first use. The config is global (`%USERPROFILE%\.claude.json`), so it applies regardless of which folder is open.
+1. Open the code base via the new **desktop shortcut** (`D365FO - <profile>`) — it launches VS Code under the right profile and folder — or restart VS Code (`Ctrl+Shift+N` for a fresh window) and open your D365FO repo. Approve the **trust** prompt for all three servers on first use. The config is global (`%USERPROFILE%\.claude.json`), so it applies regardless of which folder is open.
 2. Confirm the servers are registered:
    ```powershell
    claude mcp list
