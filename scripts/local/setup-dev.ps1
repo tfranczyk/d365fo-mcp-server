@@ -13,7 +13,7 @@ WHAT IT DOES (each step is skipped if already done):
     - npm install                                     (if node_modules missing, or -Rebuild)
     - dotnet build of the C# bridge                   (if D365MetadataBridge.exe missing, or -Rebuild)
     - npm run build (TypeScript -> dist\index.js)     (if dist\index.js missing, or -Rebuild)
-    - copy CLAUDE.md into the repo's PARENT folder    (so every repo underneath inherits it)
+    - write the tool rules into GLOBAL user memory    (%USERPROFILE%\.claude\CLAUDE.md, managed block)
 
   Part E - wire MCP servers into %USERPROFILE%\.claude.json (Claude Code only)
     - d365fo-mcp-azure (read), d365fo-mcp-local (write companion), ado-remote-mcp
@@ -65,7 +65,7 @@ PARAMETERS
   -SkipPrereqs        Do not check/install d365fo.tools / git / Node / .NET.
                       Also lets the script run without elevation (no installs).
   -NoClone            Do not auto git-clone when RepoPath is missing (just fail).
-  -NoInstructionFiles Skip copying CLAUDE.md into the repo's parent folder.
+  -NoInstructionFiles Skip writing the tool rules into %USERPROFILE%\.claude\CLAUDE.md.
   -NoShortcut         Skip creating the VS Code desktop shortcut.
 #>
 
@@ -448,10 +448,10 @@ if (-not $useSaved) {
 $customModels  = Ask "Custom models (comma-separated)"                 "CustomModels"  ""
 $solutionsPath = Ask "Solutions root for this code base (.sln/.rnrproj)" "SolutionsPath" "C:\Repos"
 $customPkgPath = Ask "Custom packages path (symlink/junction target, optional)" "CustomPackagesPath" ""
-$extPrefix     = Ask "Extension prefix"                                "ExtensionPrefix" ""
+$extPrefix     = Ask "Extension prefix"                                "ExtensionPrefix" "Ang"
 $labelLangs    = Ask "Label languages"                                 "LabelLanguages" "en-US,pl"
-$azureUrl      = Ask "Azure MCP server URL (read-only)"                "AzureUrl" ""
-$azureApiKey   = Ask "Azure MCP API key (X-Api-Key)"                   "AzureApiKey" "" -Secret
+$azureUrl      = Ask "Azure MCP server URL (read-only, ex. https://blabla.azurewebsites.net/mcp/)"                "AzureUrl" ""
+$azureApiKey   = Ask "Azure MCP API key (X-Api-Key, ask TA/DevLead on your project)"                   "AzureApiKey" "" -Secret
 $adoOrg        = Ask "Azure DevOps organization name"                  "AdoOrg" "anegis"
 $vsCodeProfile = Ask "VS Code profile name (desktop shortcut opens VS Code under it)" "VSCodeProfile" $Profile
 
@@ -547,17 +547,34 @@ try {
     Pop-Location
 }
 
-# 4e. Project instructions (CLAUDE.md) into the repo's PARENT folder (D4).
-#     Claude Code walks up the tree and inherits it for every repo underneath.
+# Folder VS Code is opened in (the desktop-shortcut target): the
+# symlink/custom-packages path if set, else PackagesLocalDirectory.
+$openFolder = if ($customPkgPath) { $customPkgPath } else { $packagesPath }
+
+# 4e. Project instructions -> GLOBAL user memory %USERPROFILE%\.claude\CLAUDE.md.
+#     Claude Code loads user memory in EVERY session regardless of which folder is
+#     open, so the MCP tool rules apply no matter where the shortcut opens VS Code
+#     (which is why this beats trying to drop CLAUDE.md into the opened folder).
+#     We replace a managed block in place, preserving any other user content.
 if (-not $NoInstructionFiles) {
-    $parent   = Split-Path $repoPathVal -Parent
     $srcInstr = Join-Path $repoPathVal ".github\copilot-instructions.md"
-    if ($parent -and (Test-Path $srcInstr)) {
-        Write-Step "CLAUDE.md -> $parent"
-        Copy-Item -Path $srcInstr -Destination (Join-Path $parent "CLAUDE.md") -Force
-        Write-Ok "CLAUDE.md copied to $parent"
+    if (-not (Test-Path $srcInstr)) {
+        Write-Skip "instruction source not found (skipping CLAUDE.md)"
     } else {
-        Write-Skip "instruction source not found (skipping CLAUDE.md copy)"
+        $claudeDir = Join-Path $env:USERPROFILE ".claude"
+        $userMd    = Join-Path $claudeDir "CLAUDE.md"
+        $marker0   = "<!-- BEGIN d365fo-mcp (managed by setup-dev.ps1) -->"
+        $marker1   = "<!-- END d365fo-mcp -->"
+        Write-Step "CLAUDE.md -> $userMd (global user memory)"
+        if (-not (Test-Path $claudeDir)) { New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null }
+        $rules    = Get-Content $srcInstr -Raw
+        $block    = "$marker0`r`n$rules`r`n$marker1"
+        $existing = if (Test-Path $userMd) { Get-Content $userMd -Raw } else { "" }
+        $pattern  = [regex]::Escape($marker0) + "[\s\S]*?" + [regex]::Escape($marker1)
+        $cleaned  = ([regex]::Replace($existing, $pattern, "")).Trim()
+        $final    = if ($cleaned) { "$cleaned`r`n`r`n$block`r`n" } else { "$block`r`n" }
+        Write-Utf8NoBom -Path $userMd -Text $final
+        Write-Ok "CLAUDE.md written to global user memory (managed block)"
     }
 }
 
@@ -626,10 +643,9 @@ if ($Switch -or $SkipPrereqs) {
 # ===========================================================================
 # 5c. Desktop shortcut - opens the code base in VS Code under this profile
 # ===========================================================================
-# Folder to open: the symlink/custom-packages path if set, else PackagesLocalDirectory.
+# Opens $openFolder (resolved above, same folder that received CLAUDE.md).
 if (-not $NoShortcut) {
-    $openFolder = if ($customPkgPath) { $customPkgPath } else { $packagesPath }
-    $codeExe    = Resolve-CodeExe
+    $codeExe = Resolve-CodeExe
     if (-not $codeExe) {
         Write-Host "  WARNING: VS Code (Code.exe) not found - skipped desktop shortcut." -ForegroundColor Yellow
     } elseif (-not $vsCodeProfile) {

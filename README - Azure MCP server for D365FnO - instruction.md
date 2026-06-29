@@ -355,7 +355,7 @@ It prompts once (values are pre-filled on re-run) and then, skipping anything al
 1. **Installs missing prerequisites** — `d365fo.tools` PowerShell module, git, Node.js, .NET SDK.
 2. **Clones** `d365fo-mcp-server` to `RepoPath` (default `C:\Repos\d365fo-mcp-server`).
 3. **`npm install`**, then **builds the C# bridge** (`dotnet build -c Release` against your `PackagesLocalDirectory\bin` — mandatory for the `d365fo_file` write tools), then **`npm run build`** (TypeScript → `dist\index.js`).
-4. **Copies `CLAUDE.md`** into the repo's parent folder (e.g. `C:\Repos\CLAUDE.md`) so every repo opened underneath inherits the MCP tool rules. For a per-repo override, drop a `CLAUDE.md` in the repo root — Claude Code merges all files on the path (child wins).
+4. **Writes the MCP tool rules into global user memory** — `%USERPROFILE%\.claude\CLAUDE.md`, which Claude Code loads in **every** session regardless of which folder is open. It replaces a managed block in place, so any other content you keep in that file is preserved. (Global is the right scope here because the MCP config is global too — the rules then apply to every D365FO code base no matter where the shortcut opens VS Code.)
 5. **Wires all three MCP servers** (`d365fo-mcp-azure` read, `d365fo-mcp-local` write companion, `ado-remote-mcp`) into `%USERPROFILE%\.claude.json`, surgically replacing only the `mcpServers` block with actual values.
 6. **Installs the Claude Code CLI** (`npm -g @anthropic-ai/claude-code`) **and the Claude Code VS Code extension** (`anthropic.claude-code`).
 7. **Creates a desktop shortcut** that opens the code base in VS Code under a named VS Code profile — `Code.exe --new-window "<folder>" --profile "<name>"`. The folder is the symlink/custom-packages path if you set one, otherwise `PackagesLocalDirectory`. You choose the profile name when prompted (defaults to the `-Profile` value).
@@ -399,7 +399,7 @@ Restart VS Code after a switch. The same `-Switch` form is the fast way to rotat
    - `What tables contain a CustAccount field?` → routes to **d365fo-mcp-azure** (read).
    - `Add a field MyNewField (type: CustAccount) to CustTable in model MyPackage.` → routes to **d365fo-mcp-local** (`d365fo_file` action=modify).
 
-If the AI uses built-in file edits instead of the local MCP, the instructions file is out of scope: verify `CLAUDE.md` sits in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root.
+If the AI uses built-in file edits instead of the local MCP, the rules are out of scope: verify `%USERPROFILE%\.claude\CLAUDE.md` exists and contains the `d365fo-mcp` managed block (re-run `setup-dev.ps1` to rewrite it).
 
 ---
 
