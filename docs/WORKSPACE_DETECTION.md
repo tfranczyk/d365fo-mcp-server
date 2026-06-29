@@ -1,28 +1,28 @@
 # Automatic Workspace Detection
 
-When you open a D365FO project in Visual Studio 2022 or 2026, the MCP server automatically
+When you open a D365FO project folder in Claude Code, the MCP server automatically
 figures out which model you are working in — **no manual configuration required**.
 
 ---
 
 ## How It Works
 
-### stdio transport (recommended — VS 2022 + VS 2026)
+### stdio transport (recommended — Claude Code)
 
 When the server is launched as a stdio subprocess via `command:` in `.mcp.json`:
 
-1. After the MCP handshake, the client sends a `roots/list` response with the open workspace folder URI.
+1. After the MCP handshake, Claude Code sends a `roots/list` response with the open workspace folder URI.
 2. The server converts the URI to a local path and searches for any `.rnrproj` file (up to 6 levels deep).
 3. It reads the `<Model>` element from the project file to get your model name.
 4. All file operations (create, modify) use that model automatically.
 
 Fallback chain when `roots/list` is not available:
-- `VSCODE_WORKSPACE_FOLDER_PATHS` environment variable (VS Code / VS 2026 set this)
+- `VSCODE_WORKSPACE_FOLDER_PATHS` environment variable (set by VS Code-based hosts)
 - `process.cwd()` — used only when it is **not** a Node.js project directory
 
 ```mermaid
 flowchart LR
-    A[Open solution<br/>in VS 2022/2026] --> B["roots/list<br/>(file:/// URI)"]
+    A[Open D365FO project<br/>folder in Claude Code] --> B["roots/list<br/>(file:/// URI)"]
     B --> C[find MyProject.rnrproj<br/>≤ 6 levels deep]
     C --> D["read &lt;Model&gt;<br/>→ MyModel"]
     D --> E["writes target<br/>...\PackagesLocalDirectory\MyPackage\MyModel\..."]
@@ -31,20 +31,20 @@ flowchart LR
 ### HTTP transport (Azure-hosted server)
 
 When connected to a remote Azure server via `url:`, the HTTP transport reads the
-`x-workspace-path` request header. VS 2022 does not send this header — configure
+`x-workspace-path` request header. If the host does not send this header — configure
 `D365FO_SOLUTIONS_PATH` or explicit `D365FO_PROJECT_PATH` env var instead.
 
 ---
 
 ## What You Need to Do
 
-**For stdio (local server):** Set `D365FO_SOLUTIONS_PATH` in the `env` block of `.mcp.json`
-pointing to the folder that contains your D365FO solution(s). The server scans it on startup
-and picks up all projects automatically.
+**For stdio (local server):** Set `D365FO_SOLUTIONS_PATH` in the `env` block of the server's
+entry in `%USERPROFILE%\.claude.json` pointing to the folder that contains your D365FO
+solution(s). The server scans it on startup and picks up all projects automatically.
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "d365fo-mcp-tools": {
       "command": "node",
       "args": ["C:\\path\\to\\d365fo-mcp-server\\dist\\index.js"],
@@ -88,12 +88,12 @@ To switch project: call get_workspace_info with projectName = "<ModelName>"
 
 ### Switching projects
 
-**Preferred — by name** (Copilot resolves the path automatically):
+**Preferred — by name** (Claude Code resolves the path automatically):
 
 ```
 "switch to ContosoEDS project"
 ```
-→ Copilot calls `get_workspace_info` with `projectName = "ContosoEDS"`
+→ Claude Code calls `get_workspace_info` with `projectName = "ContosoEDS"`
 
 You can also use a partial name — the server picks the first match:
 - `"Conto"` → matches `ContosoEDS`
@@ -153,5 +153,5 @@ block in `.mcp.json`, or set `D365FO_PROJECT_PATH` env var explicitly.
 The server detected a suspicious model name like `"auto"` or `"YourModel"`.
 This means auto-detection did not find a `.rnrproj`. Check that:
 - `D365FO_SOLUTIONS_PATH` points to a folder containing `.rnrproj` files
-- Your solution is open in Visual Studio with the correct project loaded
+- The D365FO project folder is open in Claude Code (so `roots/list` resolves it)
 - The `.mcp.json` is in the solution root (next to the `.sln` file)

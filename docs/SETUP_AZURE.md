@@ -2,6 +2,8 @@
 
 This guide covers deploying the D365 F&O MCP Server to Azure App Service.
 
+> The canonical, end-to-end Azure deployment walkthrough lives at the repo root: [README - Azure MCP server for D365FnO - instruction.md](../README%20-%20Azure%20MCP%20server%20for%20D365FnO%20-%20instruction.md). This page is a reference summary; prefer the root guide for the authoritative step-by-step.
+
 If you are a developer who only wants to **use** an existing server, see [SETUP.md](SETUP.md) instead.
 
 ---
@@ -32,7 +34,7 @@ If you are a developer who only wants to **use** an existing server, see [SETUP.
 
 ```mermaid
 graph LR
-    COP[GitHub Copilot / Claude<br/>on the developer VM] -->|search & analysis| APP["App Service<br/>(read-only)"]
+    COP[Claude Code<br/>on the developer VM] -->|search & analysis| APP["App Service<br/>(read-only)"]
     COP -->|file writes, hybrid| LOCAL["Local companion<br/>(write-only, stdio)"]
     BLOB[("Blob Storage<br/>xpp-metadata.db + labels.db")] -->|cold-start download| APP
 ```
@@ -71,7 +73,7 @@ In the **Azure Portal**:
 
 For a one-click deployment that also includes the app settings and startup command from step 2, use this Azure Deploy button.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdynamics365ninja%2Fd365fo-mcp-server%2Frefs%2Fheads%2Fmain%2Finfrastructure%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Ftfranczyk%2Fd365fo-mcp-server%2Frefs%2Fheads%2Fmain%2Finfrastructure%2Fazuredeploy.json)
 
 ---
 
@@ -115,7 +117,7 @@ For a **manual one-time deploy** (from your Windows machine):
 1. Clone the repository, build, and package:
 
    ```powershell
-   git clone https://github.com/dynamics365ninja/d365fo-mcp-server.git
+   git clone https://github.com/tfranczyk/d365fo-mcp-server.git
    cd d365fo-mcp-server
    npm install
    npm run build
