@@ -405,23 +405,12 @@ If the AI uses built-in file edits instead of the local MCP, the rules are out o
 
 # Part F — Ongoing maintenance
 
-When the server code changes on `main`, run the following commands on your local VM to comprehensively update your local companion. 
-
-> ⚠️ **Note:** Be sure to change the `D365BinPath` in the `dotnet build` command to point to your actual `PackagesLocalDirectory\bin`!
+When the server code changes on `main`, update your local companion by pulling and re-running the setup script with `-Rebuild`. It rebuilds the C# bridge (against your saved `PackagesLocalDirectory\bin`) and TypeScript, and refreshes the global `CLAUDE.md` rules and MCP config — no manual `dotnet build` / path editing needed:
 
 ```powershell
 cd C:\Repos\d365fo-mcp-server
 git pull
-npm install
-npm run build
- 
-# Rebuild the C# bridge (CHANGE the bin path to YOUR PackagesLocalDirectory)
-cd bridge\D365MetadataBridge
-dotnet build -c Release -p:D365BinPath="C:\AosService\PackagesLocalDirectory\bin"
-cd ..\..
-
-# Update project instructions
-Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.md"
+powershell -ExecutionPolicy Bypass -File scripts\local\setup-dev.ps1 -Profile <name> -Rebuild
 ```
 
 | Event | Azure side | Local companion |
