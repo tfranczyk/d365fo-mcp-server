@@ -94,8 +94,8 @@ flowchart TB
 
 > **Measured cost & model** *(one recorded end-to-end run — not an estimate)*
 > **Models actually used:** **Claude Sonnet 4.6** as the agent (`panel/editAgent`, 76 turns — all reasoning and every tool call) + **GPT-4o-mini** as a background helper (`backgroundTodoAgent`, 8 calls — todo-list upkeep only, ~$0.006). No Opus, no Haiku.
-> Tool calls **126** (78 MCP + 48 host: terminal / list_dir / todo) · New context **~182K** · Output **~38K** · Total input incl. cached prefix **~5.33M** (cached **~5.15M**) · **Billed ≈ 280 AI credits ≈ $2.80**
-> **Model used: Sonnet 4.6** — it completed the full greenfield slice without an Opus upgrade. The run came in mid-range of the original Opus estimate (200–450 credits) *on the cheaper tier*, the upside being offset by retries: the `NumberSeqGlobal` delegate pattern took ~10 terminal probes to pin down and two form generations were retried. Opus is still the safer pick when the number-sequence/posting reasoning has to land first-try; do the opening `get_workspace_info` / `get_knowledge` / label-discovery turns on Haiku to trim either way.
+> Tool calls **126** (78 MCP + 48 host: terminal / list_dir / todo) · New context **~182K** · Output **~38K** · Total input incl. cached prefix **~5.33M** (cached **~5.15M**) · **Billed ≈ $2.80**
+> **Model used: Sonnet 4.6** — it completed the full greenfield slice without an Opus upgrade. The run came in mid-range of the original Opus estimate *on the cheaper tier*, the upside being offset by retries: the `NumberSeqGlobal` delegate pattern took ~10 terminal probes to pin down and two form generations were retried. Opus is still the safer pick when the number-sequence/posting reasoning has to land first-try; do the opening `get_workspace_info` / `get_knowledge` / label-discovery turns on Haiku to trim either way.
 
 ---
 
@@ -333,11 +333,11 @@ flowchart TB
 | 4 | Customer priority tiers | Lightweight cross-stack | 22–32 | 90–160K | **Sonnet 4.6** / Haiku | ~$0.5–1.1 |
 | 5 | Inventory aging analytics | Data-out / integration | 28–40 | 120–210K | **Sonnet 4.6** | ~$0.7–1.5 |
 
-<sub>* End-to-end token cost at the recommended model, prompt caching on (see [What it costs on GitHub Copilot](#what-it-costs-on-github-copilot-pro--business) for the per-model rates and the Copilot AI-Credits breakdown). Ranges are indicative — verify on your own metadata.</sub>
-<sub>‡ Scenario 1 is **measured from one recorded run** (Sonnet 4.6, 126 tool calls, ~182K new + ~38K output context over ~5.15M cached prefix, ≈280 AI credits ≈ $2.80). "~220K" is new context + output for apples-to-apples with the estimate rows. All other rows remain estimates.</sub>
+<sub>* End-to-end token cost at the recommended model, prompt caching on (see [What it costs](#what-it-costs) for the per-model rates and the cost breakdown). Ranges are indicative — verify on your own metadata.</sub>
+<sub>‡ Scenario 1 is **measured from one recorded run** (Sonnet 4.6, 126 tool calls, ~182K new + ~38K output context over ~5.15M cached prefix, ≈$2.80). "~220K" is new context + output for apples-to-apples with the estimate rows. All other rows remain estimates.</sub>
 
 **How to drive these numbers down**
-- **Turn on prompt caching** (default in Copilot/Claude Code). It is the single biggest lever — the indexed metadata and instruction files get cached across turns.
+- **Turn on prompt caching** (default in Claude Code). It is the single biggest lever — the indexed metadata and instruction files get cached across turns.
 - **Discover cheap, build strong.** Run the opening `get_workspace_info` / `search` / `labels` turns on Haiku, then switch the model for the generation turns.
 - **Let the gates fail closed.** `GROUNDING_ENFORCE` and `FORM_PATTERN_ENFORCE` rejecting a bad write costs a few hundred tokens; a corrupted form that compiles wrong costs a debugging session.
 - **Verify in one call.** `verify_d365fo_project` + `build_d365fo_project` at the end catch dependency-order mistakes far cheaper than re-reading everything.
@@ -346,22 +346,11 @@ flowchart TB
 
 ---
 
-## What it costs on GitHub Copilot (Pro / Business)
+## What it costs
 
-Since **1 June 2026, GitHub Copilot bills on usage-based [AI Credits](https://github.com/features/copilot/plans)** — credits are consumed by **actual token usage** (input + output + cached tokens) at each model's published API rate. **1 credit = $0.01**, so a credit balance is effectively a dollar balance. The older "premium request" counting (1 request per prompt × a model multiplier) is now legacy.
+Cost is driven by **actual token usage** (input + output + cached tokens) at each model's published API rate. Output tokens dominate the bill; cached input (the re-sent conversation prefix every turn) is ~10× cheaper than fresh input, which is why caching matters so much.
 
-Each paid plan includes a monthly credit allowance; usage beyond it is billed as additional credits.
-
-| Plan | Price | Included AI Credits / mo | Notes |
-|------|------:|------------------------:|-------|
-| **Pro** | $10 / user | **$15** (1 500 credits) | Unlimited base-model completions + chat; credits cover premium models |
-| **Pro+** | $39 / user | **$70** (7 000 credits) | Adds the **Opus-class** models |
-| **Business** | $19 / user | **$19** (1 900 credits) | Org-pooled credits · promo **$30/user** through Aug 2026 |
-| **Enterprise** | $39 / user | **$39** (3 900 credits) | promo **$70/user** through Aug 2026 |
-
-> ⚠️ **Model availability is gated by plan.** Opus-class models (scenarios 1 & 2's recommendation) are exposed on **Pro+ / Max / Enterprise**, *not* base Pro. On **Pro** and many **Business** policies you'll have Sonnet-class + included base models only. Check your plan's model picker before assuming Opus is available — if it isn't, run scenarios 1 & 2 on **Sonnet 4.6** (roughly the cheaper column below; quality is still good, you just trade some first-try accuracy on the heavy architecture/posting logic).
-
-### Per-model token rates (published API rates Copilot bills against)
+### Per-model token rates (published API rates)
 
 | Model | Input /1M | Output /1M | Cache write /1M (5-min) | Cache read /1M |
 |-------|----------:|-----------:|------------------------:|---------------:|
@@ -369,26 +358,22 @@ Each paid plan includes a monthly credit allowance; usage beyond it is billed as
 | **Sonnet 4.6** | $3.00 | $15.00 | $3.75 | $0.30 |
 | **Haiku 4.5** | $1.00 | $5.00 | $1.25 | $0.10 |
 
-Output tokens dominate the bill; cached input (the re-sent conversation prefix every turn) is ~10× cheaper than fresh input, which is why caching matters so much.
+### Cost per scenario, in dollars
 
-### Cost per scenario, in dollars and credits
+| # | Scenario | Model | Est. cost |
+|---|----------|-------|----------:|
+| 1 | Equipment Rental | Sonnet 4.6‡ | **~$2.80**‡ |
+| 2 | Sales credit review | Opus 4.8 | ~$1.3–3.0 |
+| 3 | Vendor certificate compliance | Sonnet 4.6 | ~$0.9–2.0 |
+| 4 | Customer priority tiers | Sonnet 4.6 | ~$0.5–1.1 |
+| 5 | Inventory aging analytics | Sonnet 4.6 | ~$0.7–1.5 |
 
-| # | Scenario | Model | Est. cost | ≈ Credits | Pro $15 budget covers | Business $19 budget covers |
-|---|----------|-------|----------:|----------:|----------------------:|---------------------------:|
-| 1 | Equipment Rental | Sonnet 4.6‡ | **~$2.80**‡ | **~280**‡ | **~5×/mo** | **~7×/mo** |
-| 2 | Sales credit review | Opus 4.8† | ~$1.3–3.0 | 130–300 | ~5–11×/mo | ~6–14×/mo |
-| 3 | Vendor certificate compliance | Sonnet 4.6 | ~$0.9–2.0 | 90–200 | ~7–16×/mo | ~9–21×/mo |
-| 4 | Customer priority tiers | Sonnet 4.6 | ~$0.5–1.1 | 50–110 | ~13–30×/mo | ~17–38×/mo |
-| 5 | Inventory aging analytics | Sonnet 4.6 | ~$0.7–1.5 | 70–150 | ~10–21×/mo | ~12–27×/mo |
-
-<sub>† Opus needs **Pro+** ($70 credits/mo) or higher — not base Pro. On Pro/Business run these on Sonnet instead (≈ 0.55× the cost; recompute against the Sonnet rate). "Budget covers" = included monthly credits ÷ midpoint scenario cost, one developer.</sub>
-<sub>‡ Scenario 1 row is **measured from one recorded Sonnet 4.6 run** (≈280 AI credits): "Budget covers" = $15 Pro ÷ 280 ≈ 5×/mo, $19 Business ÷ 280 ≈ 7×/mo. Running it on Opus would land in the original ~200–450-credit band.</sub>
+<sub>‡ Scenario 1 row is **measured from one recorded Sonnet 4.6 run** (≈$2.80). Running it on Opus would land roughly 2× higher. All other rows are estimates — recompute against the model rate you actually use.</sub>
 
 **What this means in practice**
-- A **base Pro** seat ($10, $15 credits) comfortably handles **~10–25 Sonnet-class full-stack features a month** before any overage — plenty for one developer's steady custom-dev work.
-- A **Business** seat ($19, $19 credits, $30 promo) gives a bit more headroom per developer, pooled across the org so heavy and light users average out.
-- **Opus-heavy months** (greenfield modules, posting logic) burn credits ~2× faster *and* require **Pro+** — budget those scenarios on the $70 Pro+ allowance, or do the discovery turns on Haiku/Sonnet and reserve Opus for the final generation turns.
-- Overage past the included credits is billed as usage — predictable, since you can read live consumption in the Copilot billing dashboard. **Measure your first few features there and recalibrate** these estimates against your own prompts and metadata size.
+- One developer's steady custom-dev work runs on **Sonnet 4.6** for most scenarios — a handful of dollars per full-stack feature with caching on.
+- **Opus-heavy work** (greenfield modules, posting logic) burns roughly 2× faster — do the discovery turns on Haiku/Sonnet and reserve Opus for the final generation turns.
+- **Measure your first few features and recalibrate** these estimates against your own prompts and metadata size.
 
 ---
 

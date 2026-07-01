@@ -1,7 +1,7 @@
 # X++ Development Workflow with MCP
 
 This document explains the new development model for X++ teams working with
-MCP, VS Code workspaces, Azure DevOps, and one shared DEV machine pattern. It is
+MCP, Claude Code, Azure DevOps, and one shared DEV machine pattern. It is
 written for developers who already know D365FO and want to understand why this
 workflow is worth adopting.
 
@@ -63,7 +63,7 @@ Finally, if looked at the switching context perspective, a developer had to swit
 
 ![VM standalone dev approach switching context](img/vm-standalone-dev-switching-context.png)
 
-With the new approach, powered by Copilot for Github (or any other similar tool), switching context perspective is hosted on a single VM, when the initial tool used to investigate a development starts with VS code, connected to Github Copilot. A set of MCP engines is used to coordinate the development work from the organization perspective (Coding Standard, Anegis Knowledge Base, Azure DevOps), then a VS code is opened with a selected profile to switch between the Client's environments, repositories, D365FnO versions.
+With the new approach, powered by Claude Code, switching context perspective is hosted on a single VM, when the initial tool used to investigate a development starts with the editor connected to Claude Code. A set of MCP engines is used to coordinate the development work from the organization perspective (Coding Standard, Anegis Knowledge Base, Azure DevOps), then the editor is opened with a selected profile to switch between the Client's environments, repositories, D365FnO versions.
 
 ![VM MCP dev approach switching context](img/vm-mcp-dev-switching-context.png)
 
@@ -86,7 +86,7 @@ flowchart TB
             ADO["ADO project + work item"]
         end
 
-        Agent["Copilot / AI agent"]
+        Agent["Claude Code / AI agent"]
         Instructions["copilot-instructions.md<br/>project rules"]
 
         subgraph MCP["MCP ROUTING"]
@@ -185,7 +185,7 @@ sequenceDiagram
     autonumber
     participant Dev as Developer
     participant VS as VS Code Workspace
-    participant Agent as Copilot / Agent
+    participant Agent as Claude Code / Agent
     participant ADO as ADO MCP
     participant Azure as Azure D365FO MCP
     participant Local as Local D365FO MCP
@@ -223,7 +223,7 @@ It tells the agent to:
 - call `get_workspace_info` before D365FO work,
 - never guess method signatures,
 - never manually edit `.xml`, `.xpp`, `.label.txt`, or `.rnrproj` files,
-- use `create_d365fo_file` and `modify_d365fo_file` for D365FO changes,
+- use `d365fo_file` for D365FO changes,
 - search existing labels before creating new ones,
 - run builds only when the developer explicitly asks for them.
 
@@ -260,7 +260,7 @@ Use it for:
 - build, BP check, database sync, and SysTest when requested.
 
 In the hybrid setup, local MCP usually runs as a `write-only companion`, while
-Azure MCP runs as `read-only`. Copilot sees both servers, but correct behavior
+Azure MCP runs as `read-only`. Claude Code sees both servers, but correct behavior
 depends on the active context being correct.
 
 ### 4. ADO MCP
@@ -330,7 +330,7 @@ flowchart TB
     classDef agent fill:#ede9fe,stroke:#7c3aed,stroke-width:3px,color:#0f172a
 
     Context["ACTIVE CONTEXT<br/>repo + branch + DB/UDE env + workspace + model + work item"]:::context
-    Agent["Copilot / Agent"]:::agent
+    Agent["Claude Code / Agent"]:::agent
 
     subgraph Reads["READ / DISCOVERY"]
         Azure["Azure D365FO MCP<br/>search, signatures, references, labels, security"]:::read

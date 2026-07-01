@@ -10,8 +10,9 @@
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "d365fo-mcp-tools": {
+      "type": "stdio",
       "command": "node",
       "args": ["K:\\d365fo-mcp-server\\dist\\index.js"],
       "env": {
@@ -37,7 +38,7 @@ One path, three derived values — plus automatic `.rnrproj` discovery:
 | | stdio (recommended locally) | HTTP (Azure / `npm run dev`) |
 |---|---------------------------|------------------------------|
 | Config key | `command` + `args` + `env` | `url` |
-| Started by | the MCP client (VS / Claude), no port | you / Azure |
+| Started by | the MCP client (Claude Code), no port | you / Azure |
 | Process / memory | one process **per client** — each loads its own copy of the symbol index (~1.5 GB) | one shared process — index loaded **once** for all connected clients |
 | Workspace context | full (`env` block) | headers only — limited |
 | Auth | n/a | optional `headers: { "X-Api-Key": "..." }` |
@@ -52,7 +53,7 @@ One path, three derived values — plus automatic `.rnrproj` discovery:
 
 ## D365FO context variables
 
-Set in the `env` block. The legacy `"context": {...}` block is **deprecated** — VS treats every key under `servers` as a server definition.
+Set in the `env` block. The legacy `"context": {...}` block is **deprecated** — the client treats every key under `mcpServers` as a server definition.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
@@ -75,7 +76,7 @@ Set in the `env` block. The legacy `"context": {...}` block is **deprecated** �
 | `DB_PATH` / `LABELS_DB_PATH` | repo `data/` | absolute paths to the SQLite databases — **required in stdio mode** |
 | `GROUNDING_ENFORCE` | on | fail-closed grounding gate for write tools |
 | `FORM_PATTERN_ENFORCE` | on | block form writes on structural pattern violations (FP001–FP010) |
-| `DEBUG_LOGGING` | off | verbose JSON-RPC trace (`[VS→MCP]` / `[MCP→VS]`) on stderr |
+| `DEBUG_LOGGING` | off | verbose JSON-RPC trace (client→MCP / MCP→client) on stderr |
 | `LOG_FILE` | — | tee all stderr (incl. trace) to a file, append mode, session banner per start |
 | `MCP_TOOL_TIMEOUT_MS` | 120000 | catch-all per-request timeout |
 | `MCP_TOOL_TIMEOUT_FAST_MS` | 30000 | fast read tools (`search`, `get_*_info`, labels) — raise on slow storage |
@@ -108,7 +109,7 @@ A package may contain multiple models — the two-level `workspacePath` encodes 
 
 ## Hybrid mode summary
 
-Two servers, one merged tool list — Copilot/Claude routes calls automatically:
+Two servers, one merged tool list — Claude Code routes calls automatically:
 
 | Instance | Host | Mode | Exposes |
 |----------|------|------|---------|

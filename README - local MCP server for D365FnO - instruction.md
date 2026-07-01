@@ -56,51 +56,13 @@ D365FnO MCP will **not**:
 
 13. Run `npm run dev` in that dedicated window (preferably PowerShell). **Keep it open** — it serves the MCP over HTTP at `http://localhost:8080/mcp/`.
 
-Now wire the running server into your editor: **Copilot → Part B**, **Claude Code → Part Z**. You can do both.
+Now wire the running server into **Claude Code → Part B** below. Keep the dedicated `npm run dev` window open the whole time.
 
-## Part B — Wire into GitHub Copilot
+# Part B — Wire into Claude Code (local MCP)
 
-14. `copy .mcp.json.example .mcp.json`
+Do **Part A** first and keep the `npm run dev` window open (step 13) — the server is served over HTTP at `http://localhost:8080/mcp/`.
 
-15. Go to github.com/settings/copilot/features → enable **MCP servers in Copilot**.
-
-16. In Visual Studio: Tools → Options → GitHub → Copilot → enable "Enable MCP server integration in agent mode". Open Copilot Chat → switch to **Agent Mode** (not Ask or Edit).
-
-17. Amend `.mcp.json` to:
-
-    ```
-    {
-        "servers": {
-          "d365fo-mcp-tools": {
-            "url": "http://localhost:8080/mcp/"
-          }
-        }
-    }
-    ```
-
-18. Run `Copy-Item -Path ".\.mcp.json" -Destination "$env:USERPROFILE\.mcp.json" -Force`
-
-19. Place `.github` in a parent folder shared by all D365FO solutions:
-
-    `Copy-Item -Path ".github" -Destination "C:\Repos\" -Recurse`
-
-    > VS 2022 / VS Code search for `.github\copilot-instructions.md` upward from the `.sln` folder — one copy in a common parent covers all solutions underneath. CHECK THE PATH.
-
-20. If you did the majority of the above through VS Code, restart it. Use `CTRL+SHIFT+N` for a new workspace. Open the folder with the whole repository, e.g. `C:\Repos\D365FO-Intax`.
-
-    > The dedicated `npm run dev` window must remain open.
-
-21. In VS Code chat, go to `Settings / Agent Customizations / MCP servers`, press `+`, select `HTTP`, paste `http://localhost:8080/mcp/`, choose **Global** — done. You should see your server under `MCP Servers - installed`.
-
-22. **Time to test!** Open a new chat and ask `What tables contain a "CustAccount" field?`. You should see something that points directly to MCP usage.
-
----
-
-# Part C — Claude Code (local MCP)
-
-This is the Claude Code equivalent of **Part B** (Copilot). Do **Part A** first and keep the `npm run dev` window open (step 13) — the server is served over HTTP at `http://localhost:8080/mcp/`, the same endpoint Copilot uses.
-
-## C1. Wire the local server into Claude Code
+## B1. Wire the local server into Claude Code
 Register the running HTTP server globally (user scope = available in every folder you open):
 
 ```powershell
@@ -114,7 +76,7 @@ Verify it is registered:
 claude mcp list
 ```
 
-On first use Claude Code prompts you to **trust** the server — approve it. No separate "enable MCP" toggle is needed (unlike Copilot in step 15).
+On first use Claude Code prompts you to **trust** the server — approve it. No separate "enable MCP" toggle is needed.
 
 > Prefer editing config by hand? The same entry can be added to `%USERPROFILE%\.claude.json` under `mcpServers`:
 > ```json
@@ -128,8 +90,8 @@ On first use Claude Code prompts you to **trust** the server — approve it. No 
 > }
 > ```
 
-## C2. Project instructions (`CLAUDE.md`)
-Claude Code walks up the directory tree from the opened folder and picks up `CLAUDE.md` (the equivalent of Copilot's `.github\copilot-instructions.md` from step 19). Place it in the parent folder shared by all your D365FO solutions — every repo opened underneath inherits it:
+## B2. Project instructions (`CLAUDE.md`)
+Claude Code walks up the directory tree from the opened folder and picks up `CLAUDE.md`. The repo ships the rules as `.github\copilot-instructions.md`; copy that file out as `CLAUDE.md` into the parent folder shared by all your D365FO solutions — every repo opened underneath inherits it:
 
 ```powershell
 Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.md"
@@ -137,7 +99,7 @@ Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.
 
 For per-repo overrides, add a `CLAUDE.md` in the repo root — Claude Code merges all files found on the path (child wins on conflict). CHECK THE PATH matches where your `.sln` folders live.
 
-## C3. Coding standards / skills (plugin)
+## B3. Coding standards / skills (plugin)
 The X++ coding standards and naming conventions ship as a Claude Code plugin in `.github\` of this repo. Install Claude Code and load the plugin once; it then applies to all sessions on the machine:
 
 ```powershell
@@ -146,10 +108,10 @@ claude --plugin-dir "C:\Repos\d365fo-mcp-server\.github"
 
 After pulling repo updates, run `/reload-plugins` inside an active Claude Code session. The skill is invokable as `/d365fo-xpp:ang-xpp-dev`.
 
-## C4. Test
+## B4. Test
 Restart VS Code (`CTRL+SHIFT+N` for a fresh window), open the D365FO repo folder, open a new chat and ask:
 
 `What tables contain a CustAccount field?`
 
-You should see the call routed to **d365fo-mcp-tools**. If Claude Code uses built-in file/search tools instead, the `CLAUDE.md` from Z2 is not in scope — verify it sits in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root, and that the `npm run dev` window is still running.
+You should see the call routed to **d365fo-mcp-tools**. If Claude Code uses built-in file/search tools instead, the `CLAUDE.md` from B2 is not in scope — verify it sits in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root, and that the `npm run dev` window is still running.
 

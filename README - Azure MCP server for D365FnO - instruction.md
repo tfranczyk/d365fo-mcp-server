@@ -7,7 +7,7 @@ This instruction deploys the MCP server as a **hybrid**:
 - **Azure App Service** hosts the **read-only** MCP — shared search / read tools for the whole team.
 - **Local write-only companion** runs on each developer's VM as a stdio MCP — exposes `d365fo_file` (action=create/modify/generate), `labels` (action=create/rename), `build_d365fo_project`, `run_bp_check`, `trigger_db_sync`, `run_systest_class`, etc.
 
-Claude Code, Copilot for GitHub in VS Code (and VS 2022, but we're avoiding it) sees **both servers simultaneously**. Read-heavy queries go to Azure; any write/edit of `.xml` / `.xpp` / labels / project files goes through the local companion — the one tool chain that safely touches AOT XML and `.rnrproj`.
+Claude Code in VS Code sees **both servers simultaneously**. Read-heavy queries go to Azure; any write/edit of `.xml` / `.xpp` / labels / project files goes through the local companion — the one tool chain that safely touches AOT XML and `.rnrproj`.
 
 Current implementation scope:
 1) deploy the cloud MCP as read-only,
@@ -17,7 +17,7 @@ Current implementation scope:
 
 `d365fo-cli` is intentionally out of scope for this first rollout. Treat it as a later evaluation path, not a dependency for the hybrid MCP setup below.
 
-**Why not "just Azure + built-in AI edits"?** `CLAUDE.md` / `.github\copilot-instructions.md` (placed in Part D) forbids built-in editors on `.xml` / `.xpp` files. AOT objects must be created through `d365fo_file` (action=create/modify) so XML structure, `.rnrproj` entries, model prefixes, label files, and encoding stay consistent.
+**Why not "just Azure + built-in AI edits"?** `CLAUDE.md` (placed in Part D) forbids built-in editors on `.xml` / `.xpp` files. AOT objects must be created through `d365fo_file` (action=create/modify) so XML structure, `.rnrproj` entries, model prefixes, label files, and encoding stay consistent.
 
 D365FnO MCP for X++ will:
 1) answer questions about your code (from Azure — shared)
@@ -327,167 +327,99 @@ This is the zip-based Azure equivalent of C3 + C4 fused into one run. Use it onl
 
 ---
 
-# Part D — Local write-only companion (per developer VM)
+# Part D — Local developer setup (one script)
 
-This runs on your D365FO development VM (same box that has Visual Studio 2022 + PackagesLocalDirectory). It serves only the write/build tools over stdio to Claude Code / Copilot.
+This runs on each developer's D365FO VM (the box with Visual Studio 2022 + `PackagesLocalDirectory`). It builds the **write-only companion** — the stdio MCP that serves the local file/build tools to Claude Code — and wires every MCP server into Claude Code. A single idempotent script, `scripts\local\setup-dev.ps1`, does all of it; re-running only does what is still missing.
 
-## D0. Pre-requisites on the VM
-- PowerShell as **Administrator**
-- `Install-Module -Name d365fo.tools` (allow all)
-- `Install-D365SupportingSoftware -Name vscode,python`
-  - If Node.js install fails, grab it from https://nodejs.org and use **Repair** if needed.
-- Add Node.js to the system `Path` (e.g. `C:\Program Files\nodejs\`) via *Edit the system environment variables*.
-- .NET SDK / Visual Studio build tools available to build the C# bridge.
-- Reopen terminal as Admin.
+## D1. Run the setup script
 
-## D1. Clone and build the server locally
+> **⚠ Run PowerShell as Administrator.** The first run installs prerequisites (git / Node.js / .NET SDK), which needs elevation. Right-click PowerShell → **Run as administrator**. The script refuses to start a prerequisite-installing run unelevated (only the `-Switch` / `-SkipPrereqs` config-only paths run without admin).
+
+You do **not** clone anything by hand — the script clones the repo itself. On a fresh VM you only need PowerShell: download the script with `Invoke-RestMethod` (built in, no git required), then run it. It will install git/Node/.NET and clone the repo to `RepoPath` for you. From the **elevated** PowerShell, once per VM, with a profile name (use your VS Code profile name):
+
 ```powershell
-cd C:\Repos
-git clone https://github.com/tfranczyk/d365fo-mcp-server.git
-cd d365fo-mcp-server
-npm install
+# Bootstrap: fetch just the script, then let it do everything (incl. the clone)
+$setup = "$env:TEMP\setup-dev.ps1"
+Invoke-RestMethod "https://raw.githubusercontent.com/tfranczyk/d365fo-mcp-server/main/scripts/local/setup-dev.ps1" -OutFile $setup
+powershell -ExecutionPolicy Bypass -File $setup -Profile ProjectA
 ```
 
-Build the C# bridge. This is mandatory for local write tools such as `d365fo_file` (action=create/modify).
+Already have the repo cloned? Run the in-tree copy instead — it skips the clone:
+
 ```powershell
-cd bridge\D365MetadataBridge
-dotnet build -c Release -p:D365BinPath="J:\AosService\PackagesLocalDirectory\bin"
-cd ..\..
-```
-> Adjust the drive letter to wherever `PackagesLocalDirectory` lives on your VM.
-
-## D2. Configure `.env` (local companion)
-```powershell
-copy .env.example .env
-```
-Edit `.env` — at minimum:
-
-| Key | Value |
-|---|---|
-| `D365FO_PACKAGE_PATH` | `J:\AosService\PackagesLocalDirectory` (or your path) |
-| `PACKAGES_PATH` | same value as `D365FO_PACKAGE_PATH` (legacy compatibility) |
-| `D365FO_SOLUTIONS_PATH` | root folder that contains your local `.sln` / `.rnrproj` workspaces |
-| `CUSTOM_MODELS` | `MyPackage,OtherPackage` |
-| `LABEL_LANGUAGES` | `en-US,cs,de` (match Azure) |
-
-You do **not** need to run `npm run extract-metadata` / `build-database` for the local companion. In `write-only` mode it skips the cloud database and serves only local file/build tools. Read queries hit Azure, which already has the DB.
-
-Build TypeScript:
-```powershell
-npm run build
+powershell -ExecutionPolicy Bypass -File scripts\local\setup-dev.ps1 -Profile ProjectA
 ```
 
-## D3. Smoke-test the stdio server
-```powershell
-node dist/index.js --stdio
-```
-It should boot and wait for stdio frames. `Ctrl+C` to stop — you do **not** keep this running manually; VS Code / VS 2022 spawns it per session.
+It prompts once (values are pre-filled on re-run) and then, skipping anything already done:
 
-Recommended environment flag to hide read tools (optional, keeps the tool list clean in Claude Code / Copilot):
+1. **Installs missing prerequisites** — `d365fo.tools` PowerShell module, git, Node.js, .NET SDK.
+2. **Clones** `d365fo-mcp-server` to `RepoPath` (default `C:\Repos\d365fo-mcp-server`).
+3. **`npm install`**, then **builds the C# bridge** (`dotnet build -c Release` against your `PackagesLocalDirectory\bin` — mandatory for the `d365fo_file` write tools), then **`npm run build`** (TypeScript → `dist\index.js`).
+4. **Writes the MCP tool rules into global user memory** — `%USERPROFILE%\.claude\CLAUDE.md`, which Claude Code loads in **every** session regardless of which folder is open. It replaces a managed block in place, so any other content you keep in that file is preserved. (Global is the right scope here because the MCP config is global too — the rules then apply to every D365FO code base no matter where the shortcut opens VS Code.)
+5. **Wires all three MCP servers** (`d365fo-mcp-azure` read, `d365fo-mcp-local` write companion, `ado-remote-mcp`) into `%USERPROFILE%\.claude.json`, surgically replacing only the `mcpServers` block with actual values.
+6. **Installs the Claude Code CLI** (`npm -g @anthropic-ai/claude-code`) **and the Claude Code VS Code extension** (`anthropic.claude-code`).
+7. **Creates a desktop shortcut** that opens the code base in VS Code under a named VS Code profile — `Code.exe --new-window "<folder>" --profile "<name>"`. The folder is the symlink/custom-packages path if you set one, otherwise `PackagesLocalDirectory`. You choose the profile name when prompted (defaults to the `-Profile` value).
 
-```powershell
-$env:MCP_SERVER_MODE = "write-only"
-node dist/index.js --stdio
-```
+You never run `node dist/index.js` yourself — VS Code spawns the companion per session. You also do **not** need `npm run extract-metadata` / `build-database` locally: in `write-only` mode the companion skips the cloud DB, and read queries hit Azure.
 
-## D4. Place project instructions (`CLAUDE.md` for Claude Code / `.github\copilot-instructions.md` for Copilot)
+Flags: `-Rebuild` forces npm/bridge/TS rebuild (use after a D365FO version upgrade); `-SkipPrereqs` skips the install check; `-RepoPath` / `-ProfileStore` override locations; `-NoClone` / `-NoInstructionFiles` / `-NoShortcut` opt out of those steps.
 
-Both tools walk up the directory tree from the opened folder and pick up their respective instruction file. Place both in the parent folder shared across all your D365FO solutions (e.g. `C:\Repos\`) — every repo opened underneath inherits them.
+## D2. Load the Claude Code plugin (skills) — once per machine
 
-**Claude Code** uses `CLAUDE.md`. The repo ships `.github\copilot-instructions.md` with the MCP tool rules — copy it as `CLAUDE.md` to the parent folder:
-
-```powershell
-Copy-Item -Path ".github\copilot-instructions.md" -Destination "C:\Repos\CLAUDE.md"
-```
-
-**Copilot** uses `.github\copilot-instructions.md`. Copy the `.github` folder to the parent folder:
+The CLI and VS Code extension are installed by the setup script (D1, steps 6–7). The one remaining manual step is loading the **skills plugin** — the `ang-xpp-dev` skill (X++ coding standards + naming conventions) shipped in `.github\` of the repo:
 
 ```powershell
-Copy-Item -Path ".github" -Destination "C:\Repos\" -Recurse
-```
-
-For per-repo overrides, add a `CLAUDE.md` in the repo root — Claude Code merges all files found on the path (child takes precedence on conflict).
-
-## D5. Coding standards and naming conventions
-
-**Copilot:** The `ang-xpp-dev` agent skill contains the X++ coding standards and naming conventions. Copy it to the personal skill location so the same VM/user gets it across all D365FO repositories:
-
-```powershell
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
-Copy-Item -Path ".github\skills\ang-xpp-dev" -Destination "$env:USERPROFILE\.copilot\skills\" -Recurse -Force
-```
-
-Restart Copilot/VS Code after the first copy, or reload skills if your Copilot client exposes a skills reload command.
-
-**Claude Code:** Skills are distributed via a plugin shipped in `.github\` of this repo. Load it once and it applies to all Claude Code sessions on the machine:
-
-```powershell
-npm install -g @anthropic-ai/claude-code
 claude --plugin-dir "C:\Repos\d365fo-mcp-server\.github"
 ```
 
-Run `/reload-plugins` inside an active Claude Code session after pulling updates to the repo. The skill is invokable as `/d365fo-xpp:ang-xpp-dev`.
+It applies to all Claude Code sessions on the machine and is invokable as `/d365fo-xpp:ang-xpp-dev`. After pulling repo updates, run `/reload-plugins` in an active session.
 
----
+## D3. Switch code bases (profiles)
 
-# Part E — Wire both MCP servers into Claude Code / Copilot
-
-## E1. MCP config — two servers at once
-
-Run the setup script — it prompts for each value and writes them directly into `%USERPROFILE%\.claude.json` (the global Claude Code config). Idempotent: re-run to update any value.
+Each profile stores its own Azure URL/API key, `CUSTOM_MODELS`, solutions repo, prefix and languages in `%USERPROFILE%\d365fo-mcp.<profile>.json`. `RepoPath` and `PackagesLocalDirectory` are shared across profiles (same platform `bin`, so the C# bridge is never rebuilt on a switch). To re-point every MCP server at another custom-model code base — no prompts, no rebuild:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\local\setup-claude-env.ps1
+powershell -ExecutionPolicy Bypass -File scripts\local\setup-dev.ps1 -Profile ProjectB -Switch
 ```
 
-The script configures all three MCP servers (`d365fo-mcp-azure`, `d365fo-mcp-local`, `ado-remote-mcp`) with actual values — no environment variables or placeholders. Restart VS Code after running it.
+Restart VS Code after a switch. The same `-Switch` form is the fast way to rotate the API key or change models on an already-built VM. (The lower-level `scripts\local\setup-claude-env.ps1` still exists for a profile-less, config-only prompt.)
 
-## E2. Enable MCP integration
+## D4. Verify
 
-Choose what you are going to use. Go for both if applicable.
+1. Open the code base via the new **desktop shortcut** (`D365FO - <profile>`) — it launches VS Code under the right profile and folder — or restart VS Code (`Ctrl+Shift+N` for a fresh window) and open your D365FO repo. Approve the **trust** prompt for all three servers on first use. The config is global (`%USERPROFILE%\.claude.json`), so it applies regardless of which folder is open.
+2. Confirm the servers are registered:
+   ```powershell
+   claude mcp list
+   ```
+3. *(Optional)* Smoke-test the companion directly — it should boot and wait for stdio frames; `Ctrl+C` to stop:
+   ```powershell
+   node dist/index.js --stdio
+   ```
+4. In a new chat:
+   - `What tables contain a CustAccount field?` → routes to **d365fo-mcp-azure** (read).
+   - `Add a field MyNewField (type: CustAccount) to CustTable in model MyPackage.` → routes to **d365fo-mcp-local** (`d365fo_file` action=modify).
 
-### A) Claude Code:
-MCP servers are written to `%USERPROFILE%\.claude.json` by the setup script (E1) and load automatically. No separate "enable" toggle needed. On first use Claude Code will prompt you to **trust** each server — approve all three. Verify with:
-
-```powershell
-claude mcp list
-```
-
-### B )Copilot:
-- **GitHub** → Settings → Copilot → Features → enable **MCP servers in Copilot**.
-- **VS 2022** → Tools → Options → GitHub → Copilot → enable *"Enable MCP server integration in agent mode"*. Switch Copilot Chat to **Agent Mode**.
-- **VS Code** → Chat → Settings → Agent Customizations → MCP servers → `+` (optional — `mcp.json` above already covers it).
-
-## E3. Restart your editor
-
-Restart VS Code after the first config change. `Ctrl+Shift+N` for a fresh window, then open the D365FO repo folder.
-
-**Claude Code:** MCP config is global (`%USERPROFILE%\.claude.json`), so it applies regardless of which folder is open. Restart VS Code after editing it.
-
-**Copilot with dedicated profiles:** restart the editor **inside the same profile** after changing that profile's `mcp.json`.
-
-## E4. Test
-
-Open a new chat and ask:
-
-1. `What tables contain a CustAccount field?` — should route to **d365fo-mcp-azure** (read).
-2. `Add a field MyNewField (type: CustAccount) to CustTable in model MyPackage.` — should route to **d365fo-mcp-local** (`d365fo_file` action=modify).
-
-If the AI uses built-in file edit tools instead of calling the local MCP, the project instructions file (D4) is not in scope:
-- **Claude Code:** verify `CLAUDE.md` is in the parent folder of the opened repo (e.g. `C:\Repos\CLAUDE.md`) or in the repo root.
-- **Copilot:** verify `C:\Repos\.github\copilot-instructions.md` exists and VS Code walks up to it from the opened `.sln` folder.
+If the AI uses built-in file edits instead of the local MCP, the rules are out of scope: verify `%USERPROFILE%\.claude\CLAUDE.md` exists and contains the `d365fo-mcp` managed block (re-run `setup-dev.ps1` to rewrite it).
 
 ---
 
 # Part F — Ongoing maintenance
 
+When the server code changes on `main`, update your local companion by pulling and re-running the setup script with `-Rebuild`. It rebuilds the C# bridge (against your saved `PackagesLocalDirectory\bin`) and TypeScript, and refreshes the global `CLAUDE.md` rules and MCP config — no manual `dotnet build` / path editing needed:
+
+```powershell
+cd C:\Repos\d365fo-mcp-server
+git pull
+powershell -ExecutionPolicy Bypass -File scripts\local\setup-dev.ps1 -Profile <name> -Rebuild
+```
+
 | Event | Azure side | Local companion |
 |---|---|---|
-| Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | Close the editor → `git pull` + `npm install` + `npm run build` → rebuild the C# bridge (D1) if `bridge/` changed → reopen the editor. <br> Refresh skills/instructions (D4–D5) if they changed. |
+| Server code change pushed to `main` | Run `d365fo-mcp-app-deploy` | `git pull`, then `setup-dev.ps1 -Profile <name> -Rebuild`; reload the plugin (D2) if it changed |
 | Your custom models changed | Run or wait for scheduled `d365fo-mcp-data-extract-and-build-custom` + restart App Service | — |
-| D365FO version upgrade / hotfix | Run local `scripts/local/build-platform-metadata-local.ps1`, then `d365fo-mcp-data-extract-and-build-custom` | Rebuild the C# bridge against the new `bin` folder |
-| New developer joins | Nothing | Follow Part D + E |
-| Rotate API key | Update `API_KEY` app setting + restart | Update `X-Api-Key` in every dev's `.claude\settings.json` (Claude Code) / `mcp.json` (Copilot) |
+| D365FO version upgrade / hotfix | Run local `scripts/local/build-platform-metadata-local.ps1`, then `d365fo-mcp-data-extract-and-build-custom` | `setup-dev.ps1 -Profile <name> -Rebuild` (rebuilds the C# bridge against the new `bin`) |
+| New developer joins | Nothing | Follow Part D (run `setup-dev.ps1`) |
+| Rotate API key | Update `API_KEY` app setting + restart | Re-run `setup-dev.ps1 -Profile <name> -Switch` with the new key (updates `X-Api-Key` in `%USERPROFILE%\.claude.json`) |
 
 ---
 
@@ -503,8 +435,7 @@ If the AI uses built-in file edit tools instead of calling the local MCP, the pr
 - Variable group not found → must be named exactly `xpp-mcp-server-config`.
 
 **Local write-only companion:**
-- **Claude Code** doesn't see local tools → plugin not loaded (`claude --plugin-dir` not run), a required env var is missing or not visible to VS Code (restart after `setenv`), or Node not in Path. Check with `node -v` in a VS Code-launched terminal. Run `claude mcp list` to verify plugin servers are registered.
-- **Copilot** doesn't see local tools → `.mcp.json` path/quotes wrong, or Node not in Path. Check with `node -v` in the same terminal context VS Code runs under.
+- Claude Code doesn't see local tools → plugin not loaded (`claude --plugin-dir` not run), the MCP entry missing/misconfigured (re-run `setup-dev.ps1`), or Node not in Path. Check with `node -v` in a VS Code-launched terminal. Run `claude mcp list` to verify the servers are registered.
 - `d365fo_file` (action=modify) errors "requires file system access" → you accidentally pointed it at Azure URL. Server name in tool call should match `d365fo-mcp-local`.
 - Changes made but not visible to Azure search → expected. Azure DB is rebuilt only by the sync workflows (local platform build and/or Azure pipelines). Run `d365fo-mcp-data-extract-and-build-custom` after significant local changes if the team needs search to catch up.
 - Bridge build fails → wrong `D365BinPath`. Point it at the `bin` folder inside `PackagesLocalDirectory`.

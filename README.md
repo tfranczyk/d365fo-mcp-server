@@ -9,15 +9,22 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/tests-1100%2B-brightgreen.svg)](docs/TESTING.md)
 
-*Grounded AI development for Dynamics 365 Finance & Operations — works with GitHub Copilot and Claude Code*
-
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_d365fo-0098FF?style=flat-square&logo=githubcopilot&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=d365fo&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22d365fo_server_url%22%2C%22description%22%3A%22D365FO%20MCP%20server%20URL%20(e.g.%20https%3A%2F%2Fyour-server.azurewebsites.net%2Fmcp%2F)%22%7D%5D&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22%24%7Binput%3Ad365fo_server_url%7D%22%7D)
-[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_d365fo-24bfa5?style=flat-square&logo=githubcopilot&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=d365fo&quality=insiders&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22d365fo_server_url%22%2C%22description%22%3A%22D365FO%20MCP%20server%20URL%20(e.g.%20https%3A%2F%2Fyour-server.azurewebsites.net%2Fmcp%2F)%22%7D%5D&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22%24%7Binput%3Ad365fo_server_url%7D%22%7D)
-[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_d365fo-000000?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=d365fo&config=eyJ1cmwiOiJodHRwczovL3lvdXItc2VydmVyLmF6dXJld2Vic2l0ZXMubmV0L21jcC8ifQ%3D%3D)
-
-*One-click install connects to an already-deployed server — VS Code asks for the URL, Cursor installs a placeholder to edit. Visual Studio & Claude Code: see [Quick Start](#quick-start).*
+*Grounded AI development for Dynamics 365 Finance & Operations — built for Claude Code*
 
 </div>
+
+---
+
+## ⚡ Deployment & setup — start here
+
+Two maintained, end-to-end instruction guides live in the repo root. Pick the one that matches how you run the server:
+
+| Guide | Use it when | What it gives you |
+|---|---|---|
+| **[Azure (hybrid) — main deployment guide](<README - Azure MCP server for D365FnO - instruction.md>)** | **Team setup (recommended).** Shared read-only MCP on Azure + a local write-only companion on each developer's VM. | Azure App Service + metadata pipelines, then a one-command local companion via `scripts\local\setup-dev.ps1` (installs prerequisites, builds, wires MCP into Claude Code, named profiles, VS Code desktop shortcut). |
+| **[Local — single-VM guide](<README - local MCP server for D365FnO - instruction.md>)** | **One developer, everything on the D365FO VM.** No Azure. | Build + index locally, run the server over HTTP, wire it into Claude Code. |
+
+> These two files are the **current source of truth** for deployment. The [`docs/`](#documentation) folder holds deeper reference material, aligned with these guides — if anything there ever conflicts, the guides win.
 
 ---
 
@@ -68,105 +75,29 @@ Structural violations (wrong order, missing container, disallowed control) **blo
 
 ---
 
-## Quick Start
+## Verify it's connected
 
-Pick your path:
-
-| Path | Who | Install effort |
-|------|-----|---------------|
-| **A — Azure client** | Team member, server already deployed | `.mcp.json` only — 2 minutes |
-| **B — Hybrid** (recommended for teams) | Azure search + local writes on your VM | Clone + build, no indexing |
-| **C/E — Local** | Single developer, everything on the VM | Clone + build + index (~15 min) |
-
-Full walkthrough with all scenarios: **[docs/QUICK_START.md](docs/QUICK_START.md)**
-
-```powershell
-# Local / hybrid install (on the D365FO VM)
-git clone https://github.com/dynamics365ninja/d365fo-mcp-server.git K:\d365fo-mcp-server
-cd K:\d365fo-mcp-server
-npm install
-cd bridge\D365MetadataBridge; dotnet build -c Release; cd ..\..   # C# bridge — required for writes
-npm run build
-
-# Local only — build the metadata index (skip for hybrid)
-copy .env.example .env            # set PACKAGES_PATH, CUSTOM_MODELS
-npm run extract-metadata
-npm run build-database
-```
-
-> **UDE / Power Platform Tools?** Run `npm run select-config` instead of editing `PACKAGES_PATH`.
-
-### Connect GitHub Copilot
-
-1. Enable *MCP servers in Copilot* at [github.com/settings/copilot/features](https://github.com/settings/copilot/features)
-2. Visual Studio → **Tools → Options → GitHub → Copilot** → *Enable MCP server integration in agent mode*
-3. Create `%USERPROFILE%\.mcp.json`:
-
-```json
-{
-  "servers": {
-    "d365fo-azure": { "url": "https://your-server.azurewebsites.net/mcp/" },
-    "d365fo-local": {
-      "command": "node",
-      "args": ["K:\\d365fo-mcp-server\\dist\\index.js"],
-      "env": {
-        "MCP_SERVER_MODE": "write-only",
-        "D365FO_SOLUTIONS_PATH": "K:\\repos\\MySolution\\projects",
-        "D365FO_WORKSPACE_PATH": "K:\\AosService\\PackagesLocalDirectory\\YourPackage\\YourModel"
-      }
-    }
-  }
-}
-```
-
-4. Copy the instruction files into a parent folder of your solutions (one copy covers everything beneath it):
-
-```powershell
-Copy-Item -Path ".github" -Destination "C:\source\repos\" -Recurse
-```
-
-All options: **[docs/MCP_CONFIG.md](docs/MCP_CONFIG.md)**
-
-### Connect Claude Code
-
-```powershell
-claude mcp add-json --scope user d365fo-mcp-tools '{"type":"http","url":"https://your-server.azurewebsites.net/mcp/","alwaysLoad":true}'
-Copy-Item "K:\d365fo-mcp-server\CLAUDE.template.md" "C:\source\repos\CLAUDE.md"
-```
-
-Stdio variant and troubleshooting: **[docs/CLAUDE_CODE_SETUP.md](docs/CLAUDE_CODE_SETUP.md)**
-
-### Verify
-
-Open the AI chat (Copilot Agent Mode / Claude Code) and ask:
+After following either deployment guide, open a new Claude Code chat and ask:
 
 ```
-What tables contain "CustAccount" field?
+What tables contain a "CustAccount" field?
 ```
 
 A `search` tool call returning results from your codebase = you're connected.
 
 ---
 
-## Azure Deployment
-
-One shared instance for the whole team — the metadata index lives in Blob Storage and downloads automatically on startup.
-
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdynamics365ninja%2Fd365fo-mcp-server%2Frefs%2Fheads%2Fmain%2Finfrastructure%2Fazuredeploy.json)
-
-Deployment guide: [docs/SETUP_AZURE.md](docs/SETUP_AZURE.md) · CI/CD automation: [docs/PIPELINES.md](docs/PIPELINES.md)
-
----
-
 ## Documentation
+
+> Reference / deep-dive material, reviewed and aligned with the two deployment instruction guides at the top (repo links, Claude Code integration, tool names). Those guides stay **canonical for deployment** — if anything here ever conflicts with them, the guides win.
 
 | Getting started | Reference | Operations |
 |-----------------|-----------|------------|
-| [Quick Start](docs/QUICK_START.md) — 5 steps to running | [All 26 tools](docs/MCP_TOOLS.md) | [Azure deployment](docs/SETUP_AZURE.md) |
-| [Setup scenarios A–F](docs/SETUP.md) | [`.mcp.json` reference](docs/MCP_CONFIG.md) | [DevOps pipelines](docs/PIPELINES.md) |
+| [Quick Start](docs/QUICK_START.md) | [All 26 tools](docs/MCP_TOOLS.md) | [Azure deployment](docs/SETUP_AZURE.md) |
+| [Setup scenarios A–F](docs/SETUP.md) | [MCP config reference](docs/MCP_CONFIG.md) | [DevOps pipelines](docs/PIPELINES.md) |
 | [Claude Code setup](docs/CLAUDE_CODE_SETUP.md) | [Architecture](docs/ARCHITECTURE.md) | [Testing](docs/TESTING.md) |
-| [Usage examples](docs/USAGE_EXAMPLES.md) — real tool chains | [C# Bridge](docs/BRIDGE.md) | [Custom / ISV models](docs/CUSTOM_EXTENSIONS.md) |
-| | [Workspace detection](docs/WORKSPACE_DETECTION.md) | [SQLite vs Bridge](docs/SQLITE_DEPENDENCY.md) |
+| [Usage examples](docs/USAGE_EXAMPLES.md) | [C# Bridge](docs/BRIDGE.md) | [Custom / ISV models](docs/CUSTOM_EXTENSIONS.md) |
+| [X++ development with MCP](docs/XPP_DEVELOPMENT_WITH_MCP.md) | [Workspace detection](docs/WORKSPACE_DETECTION.md) | [SQLite vs Bridge](docs/SQLITE_DEPENDENCY.md) |
 | | [Backlog](docs/BACKLOG.md) — deferred work & ideas | |
 
 ## License

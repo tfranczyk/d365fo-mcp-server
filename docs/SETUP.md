@@ -1,8 +1,8 @@
 # Setup Guide — Client Configuration
 
-Everything a **developer** needs to connect GitHub Copilot (VS 2022 ≥ 17.14 / VS 2026) to the D365 F&O MCP Server.
+Everything a **developer** needs to connect Claude Code to the D365 F&O MCP Server.
 
-> Fast path: [QUICK_START.md](QUICK_START.md) · Azure deployment (admins): [SETUP_AZURE.md](SETUP_AZURE.md) · Claude Code: [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md)
+> Fast path: [QUICK_START.md](QUICK_START.md) · Claude Code walkthrough: [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) · Azure deployment (admins): [README - Azure MCP server for D365FnO - instruction.md](../README%20-%20Azure%20MCP%20server%20for%20D365FnO%20-%20instruction.md) · local single-VM deployment: [README - local MCP server for D365FnO - instruction.md](../README%20-%20local%20MCP%20server%20for%20D365FnO%20-%20instruction.md)
 
 ---
 
@@ -35,25 +35,22 @@ flowchart TD
 
 | Component | Version | Needed for |
 |-----------|---------|-----------|
-| Visual Studio 2022 / 2026 | ≥ 17.14 / any | MCP support |
-| GitHub Copilot extension | latest | agent mode |
+| Claude Code CLI | latest | MCP client (`npm install -g @anthropic-ai/claude-code`) |
 | Node.js + Python | 24.x LTS / 3.x | local & hybrid (native SQLite build) |
 | .NET Framework 4.8 Dev Pack | 4.8 | C# bridge — **all writes** (pre-installed on D365FO VMs) |
 | Git | any | local & hybrid |
 
-## Enable MCP (one-time)
+## Register the MCP server (one-time)
 
-1. [github.com/settings/copilot/features](https://github.com/settings/copilot/features) → **MCP servers in Copilot**
-2. VS → **Tools → Options → GitHub → Copilot** → **Enable MCP server integration in agent mode**
-3. Copilot Chat → **Agent Mode** (tools only appear there)
+Claude Code stores MCP config in `%USERPROFILE%\.claude.json`. Register a server with `claude mcp add-json` (or place a project-scoped `.mcp.json`). The per-scenario commands are below; full walkthrough in [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md).
 
-## Place copilot-instructions.md (mandatory)
+## Place CLAUDE.md (mandatory)
 
 ```powershell
-Copy-Item -Path ".github" -Destination "C:\source\repos\" -Recurse
+Copy-Item -Path "K:\d365fo-mcp-server\CLAUDE.template.md" -Destination "C:\source\repos\CLAUDE.md"
 ```
 
-VS searches `.github\copilot-instructions.md` upward from the solution folder — one copy in a common parent covers all solutions. It delivers the workflow rules (tool routing, confirm-before-write, no terminal file edits) the agent depends on. The fuller `xpp_system_instructions` MCP prompt is **opt-in** and must be invoked manually — never rely on it alone.
+Claude Code reads `CLAUDE.md` upward from the working directory — one copy in a common parent covers all solutions. It delivers the workflow rules (tool routing, confirm-before-write, no terminal file edits) the agent depends on. The same rules live in the repo's `.github/copilot-instructions.md`, which is the source they are copied from. The fuller `xpp_system_instructions` MCP prompt is **opt-in** and must be invoked manually — never rely on it alone.
 
 ---
 
@@ -61,43 +58,28 @@ VS searches `.github\copilot-instructions.md` upward from the solution folder �
 
 Team server on Azure; you connect read-only. No local install, no index.
 
-```json
-{
-  "servers": {
-    "d365fo-mcp-tools": { "url": "https://your-server.azurewebsites.net/mcp/" }
-  }
-}
+```powershell
+claude mcp add-json --scope user d365fo-mcp-tools '{"type":"http","url":"https://your-server.azurewebsites.net/mcp/","alwaysLoad":true}'
 ```
 
 > Cannot write files on your VM and cannot read your workspace context reliably (HTTP has no `env`). For real development use **Scenario B**.
 
 ## Scenario B — Hybrid (Azure search + local writes) ★
 
-Azure serves the shared index; a lightweight local companion (starts < 1 s, no database) handles writes via the C# bridge. Copilot merges both tool lists and routes automatically.
+Azure serves the shared index; a lightweight local companion (starts < 1 s, no database) handles writes via the C# bridge. Claude Code merges both tool lists and routes automatically.
 
 ```powershell
-git clone https://github.com/dynamics365ninja/d365fo-mcp-server.git K:\d365fo-mcp-server
+git clone https://github.com/tfranczyk/d365fo-mcp-server.git K:\d365fo-mcp-server
 cd K:\d365fo-mcp-server
 npm install
 cd bridge\D365MetadataBridge; dotnet build -c Release; cd ..\..
 npm run build
 ```
 
-```json
-{
-  "servers": {
-    "d365fo-azure": { "url": "https://your-server.azurewebsites.net/mcp/" },
-    "d365fo-local": {
-      "command": "node",
-      "args": ["K:\\d365fo-mcp-server\\dist\\index.js"],
-      "env": {
-        "MCP_SERVER_MODE": "write-only",
-        "D365FO_SOLUTIONS_PATH": "K:\\repos\\MySolution\\projects",
-        "D365FO_WORKSPACE_PATH": "K:\\AosService\\PackagesLocalDirectory\\YourPackage\\YourModel"
-      }
-    }
-  }
-}
+```powershell
+claude mcp add-json --scope user d365fo-azure '{"type":"http","url":"https://your-server.azurewebsites.net/mcp/","alwaysLoad":true}'
+
+claude mcp add-json --scope user d365fo-local '{"type":"stdio","command":"node","args":["K:\\d365fo-mcp-server\\dist\\index.js"],"env":{"MCP_SERVER_MODE":"write-only","D365FO_SOLUTIONS_PATH":"K:\\repos\\MySolution\\projects","D365FO_WORKSPACE_PATH":"K:\\AosService\\PackagesLocalDirectory\\YourPackage\\YourModel"},"alwaysLoad":true}'
 ```
 
 The local companion also exposes the bridge-backed reader `get_object_info` (and `get_method`), so freshly created objects are immediately readable without waiting for an Azure index refresh.
@@ -116,33 +98,18 @@ npm run build-database
 npm start                  # verify: http://localhost:8080/health
 ```
 
-```json
-{
-  "servers": {
-    "d365fo-mcp-tools": { "url": "http://localhost:8080/mcp/" }
-  }
-}
+```powershell
+claude mcp add-json --scope user d365fo-mcp-tools '{"type":"http","url":"http://localhost:8080/mcp/","alwaysLoad":true}'
 ```
 
-> Prefer **Scenario E** (stdio) when a single client drives the server — no port, no `npm start`, VS launches it for you. Choose local HTTP when **several clients share one code base** (e.g. VS Code + the CLI at the same time): stdio spawns one subprocess per client, each loading its own ~1.5 GB index, whereas a single HTTP instance loads the index once and serves them all.
+> Prefer **Scenario E** (stdio) when a single client drives the server — no port, no `npm start`, Claude Code launches it for you. Choose local HTTP when **several clients share one code base** (e.g. VS Code + the CLI at the same time): stdio spawns one subprocess per client, each loading its own ~1.5 GB index, whereas a single HTTP instance loads the index once and serves them all.
 
 ## Scenario D — UDE (Unified Developer Experience)
 
 The server reads your XPP config from `%LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig\` automatically — usually no paths needed.
 
-```json
-{
-  "servers": {
-    "d365fo-mcp-tools": {
-      "command": "node",
-      "args": ["K:\\d365fo-mcp-server\\dist\\index.js"],
-      "env": {
-        "D365FO_MODEL_NAME": "YourModelName",
-        "D365FO_DEV_ENVIRONMENT_TYPE": "ude"
-      }
-    }
-  }
-}
+```powershell
+claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"node","args":["K:\\d365fo-mcp-server\\dist\\index.js"],"env":{"D365FO_MODEL_NAME":"YourModelName","D365FO_DEV_ENVIRONMENT_TYPE":"ude"},"alwaysLoad":true}'
 ```
 
 If auto-detection fails, add `D365FO_CUSTOM_PACKAGES_PATH` and `D365FO_MICROSOFT_PACKAGES_PATH` explicitly. For metadata extraction run `npm run select-config` first. Bridge build on UDE needs the DLL path:
@@ -153,22 +120,10 @@ dotnet build -c Release -p:D365BinPath="<FrameworkDirectory>\bin"
 
 ## Scenario E — Local stdio ★ (single developer)
 
-VS spawns the server as a subprocess — no HTTP, no manual start. Build the index as in Scenario C, then:
+Claude Code spawns the server as a subprocess — no HTTP, no manual start. Build the index as in Scenario C, then:
 
-```json
-{
-  "servers": {
-    "d365fo-mcp-tools": {
-      "command": "node",
-      "args": ["C:\\d365fo-mcp-server\\dist\\index.js"],
-      "env": {
-        "DB_PATH": "C:\\d365fo-mcp-server\\data\\xpp-metadata.db",
-        "LABELS_DB_PATH": "C:\\d365fo-mcp-server\\data\\xpp-metadata-labels.db",
-        "D365FO_SOLUTIONS_PATH": "K:\\repos\\MySolution\\projects"
-      }
-    }
-  }
-}
+```powershell
+claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"node","args":["C:\\d365fo-mcp-server\\dist\\index.js"],"env":{"DB_PATH":"C:\\d365fo-mcp-server\\data\\xpp-metadata.db","LABELS_DB_PATH":"C:\\d365fo-mcp-server\\data\\xpp-metadata-labels.db","D365FO_SOLUTIONS_PATH":"K:\\repos\\MySolution\\projects"},"alwaysLoad":true}'
 ```
 
 `D365FO_SOLUTIONS_PATH` is scanned for `.rnrproj` files at startup; the MCP roots protocol delivers the open workspace automatically. Switch projects without restart via `get_workspace_info(projectPath=...)`. Details: [WORKSPACE_DETECTION.md](WORKSPACE_DETECTION.md)
@@ -184,12 +139,12 @@ One machine, several D365FO clients — each instance gets its own `.env`, datab
 .\instances\run-instance.ps1 clientA       # start on its port
 ```
 
-Point a per-solution `.mcp.json` at the right port:
+Point a per-solution `.mcp.json` (Claude Code uses the `"mcpServers"` key) at the right port:
 
 ```json
 {
-  "servers": {
-    "d365fo-clientA": { "url": "http://localhost:3001/mcp/" }
+  "mcpServers": {
+    "d365fo-clientA": { "type": "http", "url": "http://localhost:3001/mcp/", "alwaysLoad": true }
   }
 }
 ```
@@ -217,12 +172,12 @@ Healthy startup: `✅ C# bridge initialized (metadataAvailable: true, xrefAvaila
 
 ---
 
-## Where to place .mcp.json
+## Where MCP config lives
 
 | Location | Scope | Use when |
 |----------|-------|----------|
-| next to the `.sln` | that solution only | per-project servers/ports (Scenario F) |
-| `%USERPROFILE%\.mcp.json` | all solutions | one environment for everything (recommended) |
+| `.mcp.json` in the project root (`"mcpServers"` key) | that project only | per-project servers/ports (Scenario F), shared via version control |
+| `%USERPROFILE%\.claude.json` (via `claude mcp add-json --scope user`) | all projects | one environment for everything (recommended) |
 
 The server searches from the working directory up to 5 parent levels.
 
@@ -232,8 +187,8 @@ The server searches from the working directory up to 5 parent levels.
 
 | Symptom | Fix |
 |---------|-----|
-| Tools don't appear in Copilot | VS ≥ 17.14 · MCP enabled on github.com **and** in VS options · Agent Mode active · restart VS after editing `.mcp.json` |
-| Copilot uses built-in file search instead of tools | `.github\copilot-instructions.md` must exist in a parent of the solution folder |
+| Tools don't appear | `claude mcp list` shows the server connected · restart the Claude Code session after changing config |
+| Claude routes to built-in search instead of the tools | set `"alwaysLoad": true` on the server · `CLAUDE.md` must exist in a parent of the working directory |
 | File created in the wrong model | use the two-level `D365FO_WORKSPACE_PATH`: `...\PackagesLocalDirectory\<Package>\<Model>` — see [WORKSPACE_DETECTION.md](WORKSPACE_DETECTION.md) |
 | Local companion won't start | `node --version` (24.x) · re-run `npm install && npm run build` · check the path in `args` |
 | Writes fail / bridge missing | build the bridge (above) · check `.NET 4.8` · see startup log flags |
@@ -243,4 +198,4 @@ The server searches from the working directory up to 5 parent levels.
 
 ## Next steps
 
-[MCP_CONFIG.md](MCP_CONFIG.md) — every option · [MCP_TOOLS.md](MCP_TOOLS.md) — all 26 tools · [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) — real workflows · [CUSTOM_EXTENSIONS.md](CUSTOM_EXTENSIONS.md) — ISV/multi-model · [PIPELINES.md](PIPELINES.md) — automated index refresh
+[MCP_CONFIG.md](MCP_CONFIG.md) — every option · [MCP_TOOLS.md](MCP_TOOLS.md) — all 26 tools · [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) — Claude Code walkthrough · [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) — real workflows · [CUSTOM_EXTENSIONS.md](CUSTOM_EXTENSIONS.md) — ISV/multi-model · [PIPELINES.md](PIPELINES.md) — automated index refresh

@@ -8,7 +8,7 @@ Connect the D365 F&O MCP Server to Claude Code CLI in 4 steps.
 
 ## Step 1 — Build the server
 
-Same prerequisites and build steps as the Copilot guide — no VS 2022 required.
+Same prerequisites and build steps as [QUICK_START.md](QUICK_START.md).
 
 | Requirement | Where to get it |
 |------------|----------------|
@@ -18,7 +18,7 @@ Same prerequisites and build steps as the Copilot guide — no VS 2022 required.
 | .NET Framework 4.8 Developer Pack | Required for the C# bridge (file create/modify on D365FO VMs) |
 
 ```powershell
-git clone https://github.com/dynamics365ninja/d365fo-mcp-server.git K:\d365fo-mcp-server
+git clone https://github.com/tfranczyk/d365fo-mcp-server.git K:\d365fo-mcp-server
 cd K:\d365fo-mcp-server
 npm install
 
@@ -41,7 +41,7 @@ npm run build
 
 ## Step 2 — Register the MCP server
 
-Claude Code stores MCP server config in `~/.claude.json` (not in `.mcp.json` like Copilot). Use `claude mcp add-json` to register the server. The `alwaysLoad` flag is critical — without it, Claude Code defers d365fo tools and may route X++ lookups to other connected code intelligence tools or built-in search instead.
+Claude Code stores MCP server config in `~/.claude.json`. Use `claude mcp add-json` to register the server. The `alwaysLoad` flag is critical — without it, Claude Code defers d365fo tools and may route X++ lookups to other connected code intelligence tools or built-in search instead.
 
 ### Scenario A: Azure-hosted server (most teams)
 
@@ -69,7 +69,7 @@ claude mcp add-json --scope user d365fo-local '{"type":"stdio","command":"node",
 
 ### Alternative: project-scoped `.mcp.json`
 
-To share the config with your team via version control, create `.mcp.json` in your D365FO solution root. Claude Code uses the **`"mcpServers"`** key (not `"servers"` like GitHub Copilot):
+To share the config with your team via version control, create `.mcp.json` in your D365FO solution root. Claude Code uses the **`"mcpServers"`** key:
 
 ```json
 {
@@ -153,23 +153,23 @@ If a file appears on disk, the C# bridge is working.
 
 ---
 
-## Claude Code vs GitHub Copilot
+## Claude Code essentials
 
-| Feature | GitHub Copilot (VS 2022) | Claude Code CLI |
-|---------|--------------------------|-----------------|
-| Instruction file | `.github\copilot-instructions.md` (in solutions parent folder — one copy covers all solutions) | `CLAUDE.md` (same location — solutions parent folder) |
-| Agent mode toggle | Required (VS 2022 Agent Mode) | Always agentic — no toggle needed |
-| Terminal commands | Hang in VS 2022 MCP context | Work normally |
-| Config file location | `%USERPROFILE%\.mcp.json` (user-scoped, covers all projects) | `~/.claude.json` (via `claude mcp add`) or `.mcp.json` in project root |
-| Config root key | `"servers"` | `"mcpServers"` |
-| Server type field | Not required | Explicit `"type"` recommended |
-| Always-load tools | Not available | `"alwaysLoad": true` — prevents tool deferral |
+| Item | Claude Code CLI |
+|------|-----------------|
+| Instruction file | `CLAUDE.md` in the solutions parent folder — one copy covers all solutions |
+| Agent mode | Always agentic — no toggle needed |
+| Terminal commands | Work normally |
+| Config file location | `~/.claude.json` (via `claude mcp add-json`) or `.mcp.json` in project root |
+| Config root key | `"mcpServers"` |
+| Server type field | Explicit `"type"` recommended |
+| Always-load tools | `"alwaysLoad": true` — prevents tool deferral |
 
 ---
 
 ## See Also
 
-- [QUICK_START.md](QUICK_START.md) — Full Copilot scenario guide (Scenarios A–F); env var reference applies to Claude Code too
+- [QUICK_START.md](QUICK_START.md) — Full scenario guide (Scenarios A–F); env var reference applies here too
 - [MCP_CONFIG.md](MCP_CONFIG.md) — Complete env var reference for D365FO workspace paths
 - [MCP_TOOLS.md](MCP_TOOLS.md) — All 26 tools with example prompts
 - [BRIDGE.md](BRIDGE.md) — C# Metadata Bridge (required for file create/modify on Windows VMs)

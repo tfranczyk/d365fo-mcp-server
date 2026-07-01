@@ -9,7 +9,6 @@ How the server turns a private D365FO codebase into grounded AI context — and 
 ```mermaid
 graph TB
     subgraph Clients
-        VS[VS 2022/2026 + Copilot]
         CC[Claude Code CLI]
     end
 
@@ -25,7 +24,7 @@ graph TB
         BRIDGE[C# Bridge\nIMetadataProvider + DYNAMICSXREFDB]
     end
 
-    VS & CC -->|JSON-RPC| TRANSPORT --> TOOLS
+    CC -->|JSON-RPC| TRANSPORT --> TOOLS
     TOOLS --> GATES
     TOOLS --> DB & LDB
     TOOLS -->|Windows VM| BRIDGE
@@ -53,7 +52,7 @@ Full tool-by-tool breakdown: [SQLITE_DEPENDENCY.md](SQLITE_DEPENDENCY.md)
 
 ```mermaid
 sequenceDiagram
-    participant IDE as Copilot / Claude
+    participant IDE as Claude Code
     participant SRV as MCP Server
     participant GATE as Gates
     participant SRC as Bridge / SQLite
@@ -168,7 +167,7 @@ graph LR
     end
     DEVOPS[Azure DevOps pipelines\nextract → build → upload] --> BLOB
     BLOB -->|startup download| APP
-    IDE[Copilot / Claude] -->|search| APP
+    IDE[Claude Code] -->|search| APP
     IDE -->|writes| LOCAL
 ```
 
