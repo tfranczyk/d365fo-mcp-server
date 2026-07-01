@@ -137,6 +137,8 @@ For the **real lifecycle of a US**, the System.State is coarse; the detailed sta
 
 **Git linkage:** branches/commits follow `T<id> <REQCODE>-<USCODE>` (e.g. branch `feature/<id>-MOD-<nn>`, commit `T<id> REQ-<AREA>-<seq>-MOD-<nn> …`). The `T<number>` is the ADO work-item ID — use it to jump from a branch to its work item. PRs and commits also appear on the work item as `ArtifactLink` relations (`expand:"relations"`).
 
+**Never add any mention of "Co-Authored-By: Claude"** (or any AI-authorship / "Generated with Claude" line) to commit messages, PR titles/descriptions, or work-item comments.
+
 ---
 
 ## 7. Useful custom fields (US MOD/INT)

@@ -578,6 +578,28 @@ if (-not $NoInstructionFiles) {
     }
 }
 
+# 4f. Skills -> personal Claude Code skill store %USERPROFILE%\.claude\skills\<name>.
+#     Claude Code auto-discovers personal skills placed here in every session, so
+#     this removes the need to run `claude --plugin-dir` by hand. Each skill folder
+#     under .github\skills (ang-xpp-dev, ado-anegis, ...) is mirrored fresh so repo
+#     edits propagate on the next run.
+if (-not $NoInstructionFiles) {
+    $srcSkills = Join-Path $repoPathVal ".github\skills"
+    if (-not (Test-Path $srcSkills)) {
+        Write-Skip "skills source not found (skipping .claude\skills copy)"
+    } else {
+        $skillsDest = Join-Path $env:USERPROFILE ".claude\skills"
+        Write-Step "skills -> $skillsDest"
+        if (-not (Test-Path $skillsDest)) { New-Item -ItemType Directory -Force -Path $skillsDest | Out-Null }
+        foreach ($skill in Get-ChildItem -Path $srcSkills -Directory) {
+            $target = Join-Path $skillsDest $skill.Name
+            if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+            Copy-Item -Path $skill.FullName -Destination $target -Recurse -Force
+            Write-Ok "skill '$($skill.Name)' copied"
+        }
+    }
+}
+
 # ===========================================================================
 # 5. Part E - wire the three MCP servers into %USERPROFILE%\.claude.json
 # ===========================================================================
@@ -696,8 +718,8 @@ Write-Host ""
 Write-Host "Next:" -ForegroundColor Cyan
 Write-Host "  1. Open the code base via the new desktop shortcut 'D365FO - $vsCodeProfile'" -ForegroundColor White
 Write-Host "     (or restart VS Code so Claude Code reloads $configFile)." -ForegroundColor White
-Write-Host "  2. First time on this machine, load the skills plugin once:" -ForegroundColor White
-Write-Host "       claude --plugin-dir `"$repoPathVal\.github`"" -ForegroundColor DarkGray
+Write-Host "  2. Skills (ang-xpp-dev, ado-anegis) were copied to %USERPROFILE%\.claude\skills\ and" -ForegroundColor White
+Write-Host "     load automatically - no plugin command needed. Restart Claude Code to pick up changes." -ForegroundColor DarkGray
 Write-Host "  3. Verify:  claude mcp list" -ForegroundColor White
 Write-Host ""
 Write-Host "To switch code bases later:" -ForegroundColor Cyan

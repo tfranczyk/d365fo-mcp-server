@@ -97,6 +97,7 @@ Collect these before coding. If any input is missing, STOP and request it.
 2. **One work item, one solution, one project**, with aligned naming.
 3. **Zero compile errors and zero new BP errors before check-in.** BP warnings only with documented suppression and justification.
 4. **Every change has a traceable work item ID** in code comments.
+5. **Never add any mention of "Co-Authored-By: Claude"** (or any AI-authorship / "Generated with Claude" line) to commit messages, PR descriptions, or code comments.
 
 ---
 
