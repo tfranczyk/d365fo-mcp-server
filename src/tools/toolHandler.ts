@@ -2,7 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { XppServerContext } from '../types/context.js';
 import { getConfigManager } from '../utils/configManager.js';
-import { SERVER_MODE, LOCAL_TOOLS, isPlanGatedCall } from '../server/serverMode.js';
+import { SERVER_MODE, LOCAL_TOOLS, ALWAYS_TOOLS, isPlanGatedCall } from '../server/serverMode.js';
 import { getApprovedPlan, describePlan } from '../utils/planApproval.js';
 import { handleConfirmImplementationPlan } from './confirmImplementationPlan.js';
 import { searchUnifiedTool } from './searchUnified.js';
@@ -192,7 +192,11 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         isError: true,
       };
     }
-    if (SERVER_MODE === 'write-only' && !LOCAL_TOOLS.has(toolName)) {
+    // ALWAYS_TOOLS (d365fo_file, labels, get_object_info, get_method) are published
+    // in every mode and their write/local actions are the local companion's whole
+    // job, so they must pass this gate too — mirror the LOCAL ∪ ALWAYS listing filter
+    // in mcpServer.ts. Only tools that are neither LOCAL nor ALWAYS are refused here.
+    if (SERVER_MODE === 'write-only' && !LOCAL_TOOLS.has(toolName) && !ALWAYS_TOOLS.has(toolName)) {
       return {
         content: [{ type: 'text', text: `⚠️ Tool '${toolName}' is not available in write-only mode.\n\nThis local MCP server only handles file operations. Search and analysis tools are provided by the Azure MCP server.` }],
         isError: true,
